@@ -1,10 +1,17 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,15 +30,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,24 +63,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.NotaEyeState
 import com.example.data.repository.SyncStatus
+import com.example.domain.finance.DailyTrendPoint
+import com.example.domain.finance.SpendingTrendReport
+import com.example.ui.components.FormatUtils
 import com.example.ui.components.NotaAvatar
 import com.example.ui.components.ViNoteTransactionTile
 import com.example.ui.theme.ViNoteError
+import com.example.ui.theme.ViNoteMintSuccess
 import com.example.ui.theme.ViNotePrimary
+import com.example.ui.theme.ViNotePrimaryFixed
 import com.example.ui.theme.ViNoteSecondaryFixed
 import com.example.ui.theme.ViNoteSoftPink
 import com.example.ui.theme.ViNoteSurface
+import com.example.ui.theme.ViNoteSurfaceContainer
+import com.example.ui.theme.ViNoteSurfaceContainerHigh
 import com.example.ui.theme.ViNoteSurfaceContainerLow
 import com.example.ui.theme.ViNoteSurfaceContainerLowest
 import com.example.ui.theme.ViNoteTextPrimary
 import com.example.ui.theme.ViNoteTextSecondary
+import com.example.ui.theme.ViNoteWarmYellow
 import com.example.viewmodel.ActivityFilter
 import com.example.viewmodel.ViNoteViewModel
 
@@ -82,8 +106,10 @@ fun ActivityScreen(
     val currentFilter by viewModel.activityFilter.collectAsState()
     val notaConfig by viewModel.notaConfig.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
+    val spendingTrends by viewModel.spendingTrends.collectAsState()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+    var isTrendsExpanded by remember { mutableStateOf(true) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "sync_rotation")
     val rotationAngle by infiniteTransition.animateFloat(
@@ -112,7 +138,7 @@ fun ActivityScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 8.dp),
+                        .padding(top = 12.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -169,7 +195,20 @@ fun ActivityScreen(
                         }
                     }
                 }
+            }
 
+            // 1. SPENDING TRENDS HERO SECTION
+            item {
+                SpendingTrendsCard(
+                    report = spendingTrends,
+                    isExpanded = isTrendsExpanded,
+                    onToggleExpand = { isTrendsExpanded = !isTrendsExpanded },
+                    notaConfig = notaConfig
+                )
+            }
+
+            // 2. SEARCH & FILTER CONTROLS
+            item {
                 // Search Bar
                 Box(
                     modifier = Modifier
@@ -224,7 +263,7 @@ fun ActivityScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Filters Row: All, Income, Expense
                 Row(
@@ -252,7 +291,7 @@ fun ActivityScreen(
                 }
             }
 
-            // Group: Today
+            // 3. GROUPED TRANSACTION FEED
             val todayItems = filteredTransactions.filter { it.timeLabel.startsWith("Today") || it.timeLabel.startsWith("Just now") }
             if (todayItems.isNotEmpty()) {
                 item {
@@ -275,7 +314,6 @@ fun ActivityScreen(
                 }
             }
 
-            // Group: Yesterday and earlier
             val earlierItems = filteredTransactions.filter { !it.timeLabel.startsWith("Today") && !it.timeLabel.startsWith("Just now") }
             if (earlierItems.isNotEmpty()) {
                 item {
@@ -303,17 +341,18 @@ fun ActivityScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 48.dp),
+                            .padding(vertical = 40.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         NotaAvatar(
                             size = 80.dp,
                             eyeState = NotaEyeState.CURIOUS,
-                            baseColor = notaConfig.baseColor
+                            baseColor = notaConfig.baseColor,
+                            accessory = notaConfig.accessory
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "No transactions found",
+                            text = if (searchQuery.isNotEmpty()) "No matching transactions found" else "No transactions recorded yet",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = ViNoteTextSecondary
@@ -324,45 +363,6 @@ fun ActivityScreen(
 
             item {
                 Spacer(modifier = Modifier.height(90.dp)) // bottom navigation space
-            }
-        }
-
-        // Floating Micro Nota Presence (Bottom Right)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = (-20).dp, y = (-90).dp)
-                .shadow(
-                    elevation = 8.dp,
-                    shape = RoundedCornerShape(50),
-                    ambientColor = Color(0x1F171827)
-                )
-                .clip(RoundedCornerShape(50))
-                .background(ViNoteSurfaceContainerLowest)
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(ViNoteSoftPink),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "● ●",
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ViNoteTextPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Watching...",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ViNoteTextSecondary
-                )
             }
         }
     }
@@ -400,6 +400,385 @@ fun ActivityScreen(
                     Text("Cancel", color = ViNoteTextSecondary)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun SpendingTrendsCard(
+    report: SpendingTrendReport,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    notaConfig: com.example.data.model.NotaConfig
+) {
+    var selectedPoint by remember { mutableStateOf<DailyTrendPoint?>(null) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(28.dp),
+                ambientColor = Color(0x14171827),
+                spotColor = Color(0x1F171827)
+            )
+            .clip(RoundedCornerShape(28.dp))
+            .background(ViNoteSurfaceContainerLowest)
+            .border(1.dp, Color(0x12000000), RoundedCornerShape(28.dp))
+            .padding(18.dp)
+    ) {
+        Column {
+            // Header Row: Title & Toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(ViNotePrimary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoGraph,
+                            contentDescription = "Trends",
+                            tint = ViNotePrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Spending Trends",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ViNoteTextPrimary
+                        )
+                        Text(
+                            text = "Last 7 Days Breakdown",
+                            fontSize = 12.sp,
+                            color = ViNoteTextSecondary
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Trend status pill badge
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (report.isTrendingLower) ViNoteMintSuccess.copy(alpha = 0.15f) else ViNoteError.copy(alpha = 0.12f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (report.isTrendingLower) Icons.Default.TrendingDown else Icons.Default.TrendingUp,
+                                contentDescription = "Trend",
+                                tint = if (report.isTrendingLower) Color(0xFF0F6E3B) else ViNoteError,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (report.isTrendingLower) "On Track" else "High Spend",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (report.isTrendingLower) Color(0xFF0F6E3B) else ViNoteError
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Expand",
+                        tint = ViNoteTextSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Metrics Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(ViNoteSurfaceContainerLow)
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "TOTAL 7-DAY SPENT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ViNoteTextSecondary,
+                                letterSpacing = 0.06.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = FormatUtils.formatRupiah(report.totalExpensePeriod),
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ViNoteTextPrimary
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(32.dp)
+                                .background(Color(0x1A000000))
+                        )
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "DAILY AVERAGE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ViNoteTextSecondary,
+                                letterSpacing = 0.06.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${FormatUtils.formatRupiah(report.averageDailyExpense)} / day",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ViNotePrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Interactive 7-Day Bar Chart
+                    Text(
+                        text = selectedPoint?.let { "${it.dateLabel} (${it.dayLabel}): ${FormatUtils.formatRupiah(it.amount)}" }
+                            ?: "DAILY SPENDING DISTRIBUTION",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selectedPoint != null) ViNotePrimary else ViNoteTextSecondary,
+                        letterSpacing = 0.05.sp,
+                        modifier = Modifier.padding(start = 2.dp, bottom = 10.dp)
+                    )
+
+                    // Daily Bars Container
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(115.dp)
+                            .padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        report.dailyTrendPoints.forEach { point ->
+                            val isSelected = selectedPoint == point
+                            DailyBarColumn(
+                                point = point,
+                                isSelected = isSelected,
+                                onClick = {
+                                    selectedPoint = if (selectedPoint == point) null else point
+                                }
+                            )
+                        }
+                    }
+
+                    // Peak Day Chip if available
+                    if (report.peakDayAmount > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(end = 4.dp)
+                        ) {
+                            Text(
+                                text = "Peak day: ${report.peakExpenseDay} (${FormatUtils.formatRupiah(report.peakDayAmount)})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ViNoteTextSecondary
+                            )
+                        }
+                    }
+
+                    // Top Categories Progress Breakdown
+                    if (report.categoryTrends.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Text(
+                            text = "TOP SPENDING CATEGORIES",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ViNoteTextSecondary,
+                            letterSpacing = 0.05.sp,
+                            modifier = Modifier.padding(start = 2.dp, bottom = 8.dp)
+                        )
+
+                        report.categoryTrends.forEach { cat ->
+                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(android.graphics.Color.parseColor(cat.colorHex)))
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = cat.category,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = ViNoteTextPrimary
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "${FormatUtils.formatRupiah(cat.amount)} (${cat.percentage}%)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ViNoteTextSecondary
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                // Progress bar
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(ViNoteSurfaceContainerLow)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(fraction = (cat.percentage / 100f).coerceIn(0.05f, 1f))
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(50))
+                                            .background(Color(android.graphics.Color.parseColor(cat.colorHex)))
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // NoTa Advice Bubble
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(ViNoteSecondaryFixed.copy(alpha = 0.35f))
+                            .border(1.dp, ViNotePrimary.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            NotaAvatar(
+                                size = 44.dp,
+                                eyeState = if (report.isTrendingLower) NotaEyeState.HAPPY else NotaEyeState.CURIOUS,
+                                baseColor = notaConfig.baseColor,
+                                accessory = notaConfig.accessory,
+                                isAnimated = false
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Text(
+                                text = report.notaTrendInsight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = ViNoteTextPrimary,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyBarColumn(
+    point: DailyTrendPoint,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val barHeightRatio by animateFloatAsState(
+        targetValue = point.relativeHeight,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "bar_height"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(36.dp)
+            .clickable(onClick = onClick)
+    ) {
+        // Vertical Bar Slot (Max 78dp)
+        Box(
+            modifier = Modifier
+                .height(78.dp)
+                .width(18.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            // Background track
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(50))
+                    .background(ViNoteSurfaceContainerLow)
+            )
+
+            // Active bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(fraction = barHeightRatio)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        when {
+                            isSelected -> Brush.verticalGradient(listOf(ViNotePrimary, ViNotePrimary))
+                            point.isToday -> Brush.verticalGradient(
+                                colors = listOf(ViNotePrimary, Color(0xFF003893))
+                            )
+                            point.amount > 0 -> Brush.verticalGradient(
+                                colors = listOf(ViNoteSecondaryFixed, ViNotePrimary.copy(alpha = 0.7f))
+                            )
+                            else -> Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                        }
+                    )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Day Label
+        Text(
+            text = point.dayLabel.take(3),
+            fontSize = 11.sp,
+            fontWeight = if (point.isToday || isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (point.isToday || isSelected) ViNotePrimary else ViNoteTextSecondary
         )
     }
 }

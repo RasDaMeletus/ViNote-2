@@ -77,6 +77,10 @@ fun HomeScreen(
 ) {
     val transactions by viewModel.allTransactions.collectAsState()
     val notaConfig by viewModel.notaConfig.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
+    val budgetAlertState by viewModel.budgetAlertState.collectAsState()
+    val calculatedBalance by viewModel.currentCalculatedBalance.collectAsState()
+    val safeMoney by viewModel.safeMoney.collectAsState()
 
     // Ambient floating background glow
     Box(
@@ -147,7 +151,7 @@ fun HomeScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "F",
+                                    text = userProfile.avatarInitials.take(1),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp,
                                     color = Color.White
@@ -158,7 +162,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         Text(
-                            text = "Good afternoon, Farras",
+                            text = "Hi, ${userProfile.fullName.substringBefore(" ")} 👋",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = ViNoteTextPrimary
@@ -185,6 +189,7 @@ fun HomeScreen(
 
             // Hero: Expressive Nota Character with Speech Bubble
             item {
+                val isFurious = budgetAlertState.isTriggered && !budgetAlertState.isDismissed
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -198,17 +203,25 @@ fun HomeScreen(
                             .shadow(
                                 elevation = 6.dp,
                                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 4.dp),
-                                ambientColor = Color(0x1A171827)
+                                ambientColor = if (isFurious) Color(0x33BA1A1A) else Color(0x1A171827)
                             )
                             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 4.dp))
-                            .background(ViNoteSurfaceContainerLowest)
+                            .background(if (isFurious) Color(0xFFFFF0F0) else ViNoteSurfaceContainerLowest)
+                            .clickable {
+                                if (isFurious) {
+                                    viewModel.calmNotaDown()
+                                }
+                            }
                             .padding(horizontal = 20.dp, vertical = 12.dp)
                     ) {
                         Text(
-                            text = "Your spending looks pretty calm today ✨",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = ViNoteTextPrimary
+                            text = if (isFurious)
+                                "💢 OVER BUDGET! You exceeded the daily limit! Tap to calm me 🕊️"
+                            else
+                                "Your spending looks pretty calm today ✨",
+                            fontSize = 14.sp,
+                            fontWeight = if (isFurious) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isFurious) Color(0xFFBA1A1A) else ViNoteTextPrimary
                         )
                     }
 
@@ -217,11 +230,15 @@ fun HomeScreen(
                     // Nota Character Avatar
                     NotaAvatar(
                         size = 110.dp,
-                        eyeState = NotaEyeState.NEUTRAL,
+                        eyeState = if (isFurious) NotaEyeState.FURIOUS else notaConfig.eyeState,
                         baseColor = notaConfig.baseColor,
                         accessory = notaConfig.accessory,
                         onClick = {
-                            viewModel.updateNotaPersonality((notaConfig.personalitySlider + 25f) % 100f)
+                            if (isFurious) {
+                                viewModel.calmNotaDown()
+                            } else {
+                                viewModel.updateNotaPersonality((notaConfig.personalitySlider + 25f) % 100f)
+                            }
                         }
                     )
                 }
@@ -247,7 +264,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = FormatUtils.formatRupiah(viewModel.baseAvailableBalance),
+                            text = FormatUtils.formatRupiah(calculatedBalance),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = ViNoteTextPrimary,
@@ -294,7 +311,7 @@ fun HomeScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = FormatUtils.formatRupiah(viewModel.safeMoney),
+                                        text = FormatUtils.formatRupiah(safeMoney),
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ViNoteTextPrimary

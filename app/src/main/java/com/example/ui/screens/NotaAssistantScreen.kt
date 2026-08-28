@@ -9,10 +9,13 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,17 +38,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.QueryStats
+import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,24 +65,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ChatMessage
+import com.example.data.model.NotaBaseColor
 import com.example.data.model.NotaEyeState
 import com.example.ui.components.FormatUtils
 import com.example.ui.components.NotaAvatar
 import com.example.ui.theme.ViNoteMintSuccess
 import com.example.ui.theme.ViNoteOnPrimary
+import com.example.ui.theme.ViNoteOutlineVariant
 import com.example.ui.theme.ViNotePrimary
+import com.example.ui.theme.ViNotePrimaryContainer
 import com.example.ui.theme.ViNoteSecondaryFixed
-import com.example.ui.theme.ViNoteSoftPink
+import com.example.ui.theme.ViNoteSecondaryFixedDim
 import com.example.ui.theme.ViNoteSurface
 import com.example.ui.theme.ViNoteSurfaceContainer
+import com.example.ui.theme.ViNoteSurfaceContainerHigh
 import com.example.ui.theme.ViNoteSurfaceContainerLow
 import com.example.ui.theme.ViNoteSurfaceContainerLowest
 import com.example.ui.theme.ViNoteTextPrimary
@@ -91,19 +110,76 @@ fun NotaAssistantScreen(
     val chatMessages by viewModel.chatMessages.collectAsState()
     val isNotaTyping by viewModel.isNotaTyping.collectAsState()
     val notaConfig by viewModel.notaConfig.collectAsState()
+    val safeMoney by viewModel.safeMoney.collectAsState()
+    val calculatedBalance by viewModel.currentCalculatedBalance.collectAsState()
+    val todaySpent by viewModel.todaySpent.collectAsState()
+
     var inputText by remember { mutableStateOf("") }
+    var isInputFocused by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    // Determine if we are in Hero (Empty) state or Active Conversation state
+    val isHeroMode = chatMessages.size <= 1
+
+    // Dynamic eyes reactivity based on user interaction & state
+    val dynamicCustomEyes: String? = when {
+        isNotaTyping -> "● ◌"
+        inputText.isNotBlank() -> "● ◡ ●"
+        isInputFocused -> "● ●"
+        else -> null
+    }
+
+    val activeEyeState = when {
+        isNotaTyping -> NotaEyeState.THINKING
+        isInputFocused -> NotaEyeState.NEUTRAL
+        else -> chatMessages.lastOrNull { !it.isUser }?.eyeState ?: NotaEyeState.CURIOUS
+    }
 
     // Auto-scroll to bottom on new messages
     LaunchedEffect(chatMessages.size, isNotaTyping) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size + 1)
+        if (!isHeroMode && chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size)
         }
     }
 
-    val latestEye = if (isNotaTyping) NotaEyeState.THINKING else {
-        chatMessages.lastOrNull { !it.isUser }?.eyeState ?: notaConfig.eyeState
-    }
+    // Ambient floating glow animation
+    val infiniteTransition = rememberInfiniteTransition(label = "assistant_motion")
+    val pulseGlow by infiniteTransition.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_glow"
+    )
+    val floatAnim by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "float_bubble"
+    )
+    val micRippleScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.55f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "mic_ripple"
+    )
+    val micRippleAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "mic_ripple_alpha"
+    )
 
     Box(
         modifier = modifier
@@ -111,391 +187,450 @@ fun NotaAssistantScreen(
             .background(ViNoteSurface)
             .imePadding()
     ) {
+        // 1. Subtle Immersive Ambient Glow Behind Nota
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 80.dp)
+                .size(320.dp)
+                .scale(pulseGlow)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            ViNoteSecondaryFixedDim.copy(alpha = 0.45f),
+                            ViNoteSecondaryFixed.copy(alpha = 0.15f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // 1. TOP HEADER BAR
+            // 2. MINIMAL TOP BAR
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    NotaAvatar(
-                        size = 38.dp,
-                        eyeState = latestEye,
-                        baseColor = notaConfig.baseColor,
-                        accessory = notaConfig.accessory,
-                        isAnimated = true,
-                        onClick = { viewModel.cycleNotaExpression() }
+                // Left: Circular Reset / Close button
+                IconButton(
+                    onClick = { viewModel.clearChat() },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(ViNoteSurfaceContainer)
+                        .testTag("nota_close_chat_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close conversation",
+                        tint = ViNoteTextSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "NoTa",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ViNoteTextPrimary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(ViNoteSecondaryFixed.copy(alpha = 0.6f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "AI Companion",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ViNotePrimary
-                                )
-                            }
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isNotaTyping) ViNoteWarmYellow else ViNoteMintSuccess)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = if (isNotaTyping) "Analyzing finances..." else "Ready to assist you",
-                                fontSize = 12.sp,
-                                color = ViNoteTextSecondary
-                            )
-                        }
+                }
+
+                // Center: Contextual Uppercase Tag
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "ASSISTANT",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ViNoteTextSecondary,
+                        letterSpacing = 1.2.sp
+                    )
+                    if (!isHeroMode) {
+                        Text(
+                            text = if (isNotaTyping) "Analyzing finances..." else "NoTa is online",
+                            fontSize = 10.sp,
+                            color = if (isNotaTyping) ViNotePrimary else ViNoteMintSuccess,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
 
-                // Top Right Action Buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Right: Customize Theme Button
+                IconButton(
+                    onClick = onNavigateToCustomizeNota,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(ViNoteSurfaceContainer)
+                        .testTag("nota_customize_shortcut_btn")
                 ) {
-                    // Customize Nota appearance shortcut
-                    IconButton(
-                        onClick = onNavigateToCustomizeNota,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(ViNoteSurfaceContainerLowest)
-                            .border(1.dp, Color(0x1F747789), CircleShape)
-                            .testTag("nota_customize_shortcut_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = "Customize Nota",
-                            tint = ViNotePrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Reset conversation
-                    IconButton(
-                        onClick = { viewModel.clearChat() },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(ViNoteSurfaceContainerLowest)
-                            .border(1.dp, Color(0x1F747789), CircleShape)
-                            .testTag("nota_clear_chat_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Clear Chat",
-                            tint = ViNoteTextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = "Customize NoTa",
+                        tint = ViNoteTextSecondary,
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
             }
 
-            // 2. CONVERSATIONAL STREAM (LAZY COLUMN)
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(top = 6.dp, bottom = 16.dp)
-            ) {
-                // HERO STAGE: Interactive Mascot & Financial Pulse Card
-                item {
-                    Column(
+            // 3. MAIN CONVERSATIONAL CANVAS
+            if (isHeroMode) {
+                // ==================== HERO LANDING STATE ====================
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // Central Large Nota Mascot
+                    Box(
+                        modifier = Modifier.padding(bottom = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        NotaAvatar(
+                            size = 140.dp,
+                            eyeState = activeEyeState,
+                            customEyes = dynamicCustomEyes,
+                            baseColor = notaConfig.baseColor,
+                            accessory = notaConfig.accessory,
+                            showSparkle = true,
+                            isAnimated = true,
+                            onClick = { viewModel.cycleNotaExpression() }
+                        )
+                    }
+
+                    // Floating Speech Bubble
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp),
+                            .fillMaxWidth(0.88f)
+                            .offset(y = floatAnim.dp)
+                            .shadow(
+                                elevation = 12.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                ambientColor = Color(0x14171827),
+                                spotColor = Color(0x1A171827)
+                            )
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(ViNoteSurfaceContainerLowest)
+                            .border(1.dp, ViNoteOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
+                            .padding(horizontal = 22.dp, vertical = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Hey! What are we figuring out today?",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ViNoteTextPrimary,
+                            lineHeight = 28.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    // Quick Action Chips (Pill shape, 46dp min height)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Large Avatar with tap interaction
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HeroQuickChip(
+                                icon = Icons.Default.Payments,
+                                label = "Can I afford this?",
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.sendChatMessage("Can I afford dinner tonight?") }
+                            )
+                            HeroQuickChip(
+                                icon = Icons.Default.QueryStats,
+                                label = "Where did my money go?",
+                                modifier = Modifier.weight(1.1f),
+                                onClick = { viewModel.sendChatMessage("Where did my money go?") }
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HeroQuickChip(
+                                icon = Icons.Default.Savings,
+                                label = "Help me save",
+                                modifier = Modifier.weight(1f),
+                                onClick = { viewModel.sendChatMessage("Help me save money") }
+                            )
+                            HeroQuickChip(
+                                icon = Icons.Default.TrackChanges,
+                                label = "Check Safe Money",
+                                modifier = Modifier.weight(1.1f),
+                                onClick = { viewModel.sendChatMessage("What is my safe money?") }
+                            )
+                        }
+                    }
+                }
+            } else {
+                // ==================== ACTIVE CONVERSATION STATE ====================
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp)
+                ) {
+                    // Mini Mascot Header
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             NotaAvatar(
-                                size = 110.dp,
-                                eyeState = latestEye,
+                                size = 52.dp,
+                                eyeState = activeEyeState,
+                                customEyes = dynamicCustomEyes,
                                 baseColor = notaConfig.baseColor,
                                 accessory = notaConfig.accessory,
-                                showSparkle = true,
                                 isAnimated = true,
                                 onClick = { viewModel.cycleNotaExpression() }
                             )
                         }
-
-                        // Speech bubble above pulse metrics
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(ViNoteSurfaceContainerLowest)
-                                .border(1.dp, Color(0x1F747789), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = "“Hey Farras! 🌟 Tap me anytime or ask below!”",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = ViNoteTextPrimary
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Financial Pulse Mini Badges
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            PulseMetricBadge(
-                                label = "Safe Money",
-                                value = FormatUtils.formatRupiah(viewModel.safeMoney),
-                                emoji = "🛡️",
-                                badgeColor = ViNoteMintSuccess.copy(alpha = 0.15f),
-                                textColor = Color(0xFF00796B),
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.sendChatMessage("What is my safe money?") }
-                            )
-                            PulseMetricBadge(
-                                label = "Daily Limit",
-                                value = FormatUtils.formatRupiah(viewModel.dailyLimit),
-                                emoji = "⚡",
-                                badgeColor = ViNoteWarmYellow.copy(alpha = 0.35f),
-                                textColor = Color(0xFFB06000),
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.sendChatMessage("How much did I spend today?") }
-                            )
-                            PulseMetricBadge(
-                                label = "Health Score",
-                                value = "80% Optimal",
-                                emoji = "🎯",
-                                badgeColor = ViNoteSecondaryFixed.copy(alpha = 0.6f),
-                                textColor = ViNotePrimary,
-                                modifier = Modifier.weight(1f),
-                                onClick = { viewModel.sendChatMessage("Help me save money") }
-                            )
-                        }
                     }
-                }
 
-                // Chat Messages Feed
-                items(chatMessages) { message ->
-                    ChatBubble(
-                        message = message,
-                        notaEye = message.eyeState,
-                        baseColor = notaConfig.baseColor,
-                        accessory = notaConfig.accessory,
-                        onChipClicked = { chipText ->
-                            viewModel.sendChatMessage(chipText)
-                        }
-                    )
-                }
-
-                // Animated Typing Indicator
-                if (isNotaTyping) {
-                    item {
-                        TypingIndicatorBubble()
-                    }
-                }
-            }
-
-            // 3. HORIZONTAL QUICK PROMPT CHIPS
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val promptSuggestions = listOf(
-                    "🍣 Can I afford dinner tonight?" to "Can I afford dinner tonight?",
-                    "📊 Where did my money go?" to "Where did my money go?",
-                    "💡 Help me save faster" to "Help me save",
-                    "☕ Coffee spending this week" to "How much did I spend on coffee this week?",
-                    "🛡️ Check Uang Aman" to "What is my safe money status?"
-                )
-                items(promptSuggestions) { (label, query) ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(ViNoteSurfaceContainerLowest)
-                            .border(1.dp, Color(0x1F747789), RoundedCornerShape(50))
-                            .clickable { viewModel.sendChatMessage(query) }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                            .testTag("prompt_chip_$query")
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = ViNotePrimary
+                    // Chat messages
+                    items(chatMessages) { message ->
+                        TalkToNotaBubble(
+                            message = message,
+                            notaEye = message.eyeState,
+                            baseColor = notaConfig.baseColor,
+                            accessory = notaConfig.accessory,
+                            safeMoney = safeMoney,
+                            calculatedBalance = calculatedBalance,
+                            todaySpent = todaySpent,
+                            onChipClicked = { chipText ->
+                                viewModel.sendChatMessage(chipText)
+                            }
                         )
                     }
+
+                    // Typing Indicator
+                    if (isNotaTyping) {
+                        item {
+                            NotaTypingBubble()
+                        }
+                    }
                 }
             }
 
-            // 4. BOTTOM INPUT DOCK
+            // 4. PINNED FLOATING BOTTOM INPUT DOCK
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(elevation = 10.dp, ambientColor = Color(0x14171827))
-                    .background(ViNoteSurfaceContainerLowest)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                    .navigationBarsPadding()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Voice Mic Shortcut
-                    IconButton(
-                        onClick = onNavigateToVoice,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(ViNoteSecondaryFixed.copy(alpha = 0.6f))
-                            .testTag("chat_voice_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice Input",
-                            tint = ViNotePrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // Text Input Pill
-                    TextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = {
-                            Text(
-                                text = "Ask Nota anything...",
-                                color = ViNoteTextSecondary,
-                                fontSize = 14.sp
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                ViNoteSurface.copy(alpha = 0.95f),
+                                ViNoteSurface
                             )
-                        },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = ViNoteSurfaceContainerLow,
-                            unfocusedContainerColor = ViNoteSurfaceContainerLow,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("chat_input_field")
-                    )
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // Animated Send Button
-                    val isSendActive = inputText.isNotBlank()
-                    IconButton(
-                        onClick = {
-                            if (isSendActive) {
-                                val query = inputText
-                                inputText = ""
-                                viewModel.sendChatMessage(query)
-                            }
-                        },
-                        enabled = isSendActive,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(if (isSendActive) ViNotePrimary else ViNoteSurfaceContainerLow)
-                            .testTag("chat_send_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Send",
-                            tint = if (isSendActive) ViNoteOnPrimary else ViNoteTextSecondary,
-                            modifier = Modifier.size(20.dp)
                         )
+                    )
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                // Floating Rounded Pill Input Wrapper with focus glow
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = RoundedCornerShape(50),
+                            ambientColor = Color(0x14171827),
+                            spotColor = if (isInputFocused) ViNotePrimary.copy(alpha = 0.25f) else Color(0x1F171827)
+                        )
+                        .clip(RoundedCornerShape(50))
+                        .background(ViNoteSurfaceContainerLowest)
+                        .border(
+                            width = if (isInputFocused) 1.5.dp else 1.dp,
+                            color = if (isInputFocused) ViNotePrimary.copy(alpha = 0.45f) else ViNoteOutlineVariant.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(50)
+                        )
+                        .padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Text Field
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (inputText.isEmpty()) {
+                                Text(
+                                    text = "Ask Nota...",
+                                    fontSize = 15.sp,
+                                    color = ViNoteTextSecondary,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            }
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { inputText = it },
+                                textStyle = TextStyle(
+                                    fontSize = 15.sp,
+                                    color = ViNoteTextPrimary,
+                                    fontWeight = FontWeight.Normal
+                                ),
+                                cursorBrush = SolidColor(ViNotePrimary),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(
+                                    onSend = {
+                                        if (inputText.isNotBlank()) {
+                                            val query = inputText
+                                            inputText = ""
+                                            viewModel.sendChatMessage(query)
+                                        }
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { isInputFocused = it.isFocused }
+                                    .testTag("chat_input_field")
+                            )
+                        }
+
+                        // Right Action: Pulsing Voice Mic Button or Send Button
+                        val hasText = inputText.isNotBlank()
+                        if (hasText) {
+                            IconButton(
+                                onClick = {
+                                    val query = inputText
+                                    inputText = ""
+                                    viewModel.sendChatMessage(query)
+                                },
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(ViNotePrimary)
+                                    .testTag("chat_send_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = "Send",
+                                    tint = ViNoteOnPrimary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        } else {
+                            // Pulsing Voice Button with ripple
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clickable { onNavigateToVoice() }
+                            ) {
+                                // Animated Ripple layer
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .scale(micRippleScale)
+                                        .clip(CircleShape)
+                                        .background(ViNotePrimary.copy(alpha = micRippleAlpha))
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .shadow(
+                                            elevation = 6.dp,
+                                            shape = CircleShape,
+                                            ambientColor = ViNotePrimary.copy(alpha = 0.4f),
+                                            spotColor = ViNotePrimary.copy(alpha = 0.4f)
+                                        )
+                                        .clip(CircleShape)
+                                        .background(ViNotePrimary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Voice Input",
+                                        tint = ViNoteOnPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(72.dp)) // Bottom navigation bar clearance
+            Spacer(modifier = Modifier.height(68.dp)) // Bottom navigation spacing
         }
     }
 }
 
 @Composable
-private fun PulseMetricBadge(
+private fun HeroQuickChip(
+    icon: ImageVector,
     label: String,
-    value: String,
-    emoji: String,
-    badgeColor: Color,
-    textColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Column(
+    Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(badgeColor)
+            .height(46.dp)
+            .shadow(elevation = 2.dp, shape = RoundedCornerShape(50), ambientColor = Color(0x0A171827))
+            .clip(RoundedCornerShape(50))
+            .background(ViNoteSurfaceContainerLow)
+            .border(1.dp, ViNoteOutlineVariant.copy(alpha = 0.3f), RoundedCornerShape(50))
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = emoji, fontSize = 12.sp)
-            Spacer(modifier = Modifier.width(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = ViNotePrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
-                fontSize = 11.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = textColor
+                color = ViNoteTextPrimary,
+                maxLines = 1
             )
         }
-        Spacer(modifier = Modifier.height(3.dp))
-        Text(
-            text = value,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = ViNoteTextPrimary
-        )
     }
 }
 
 @Composable
-private fun ChatBubble(
+private fun TalkToNotaBubble(
     message: ChatMessage,
     notaEye: NotaEyeState,
-    baseColor: com.example.data.model.NotaBaseColor,
+    baseColor: NotaBaseColor,
     accessory: com.example.data.model.NotaAccessory,
+    safeMoney: Long,
+    calculatedBalance: Long,
+    todaySpent: Long,
     onChipClicked: (String) -> Unit
 ) {
     val isUser = message.isUser
@@ -505,13 +640,12 @@ private fun ChatBubble(
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         if (!isUser) {
-            // Nota Message Header with Mini Avatar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
             ) {
                 NotaAvatar(
-                    size = 22.dp,
+                    size = 24.dp,
                     eyeState = notaEye,
                     baseColor = baseColor,
                     accessory = accessory,
@@ -519,7 +653,7 @@ private fun ChatBubble(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Nota",
+                    text = "NoTa",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = ViNotePrimary
@@ -527,6 +661,7 @@ private fun ChatBubble(
             }
         }
 
+        // Main Bubble
         Box(
             modifier = Modifier
                 .clip(
@@ -542,23 +677,53 @@ private fun ChatBubble(
                     if (!isUser) {
                         Modifier.border(
                             1.dp,
-                            Color(0x1F747789),
-                            RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
+                            ViNoteOutlineVariant.copy(alpha = 0.35f),
+                            RoundedCornerShape(
+                                topStart = 20.dp,
+                                topEnd = 20.dp,
+                                bottomStart = 4.dp,
+                                bottomEnd = 20.dp
+                            )
                         )
                     } else Modifier
                 )
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-                .fillMaxWidth(0.88f)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
+                .fillMaxWidth(if (isUser) 0.8f else 0.9f)
         ) {
-            Text(
-                text = message.text,
-                fontSize = 15.sp,
-                color = if (isUser) Color.White else ViNoteTextPrimary,
-                lineHeight = 22.sp
-            )
+            Column {
+                Text(
+                    text = message.text,
+                    fontSize = 15.sp,
+                    color = if (isUser) Color.White else ViNoteTextPrimary,
+                    lineHeight = 22.sp
+                )
+
+                // Contextual Structured Financial Card if message answers financial status
+                if (!isUser && (message.text.contains("Safe Money", ignoreCase = true) || message.text.contains("Uang Aman", ignoreCase = true))) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    StructuredFinancialCard(
+                        title = "Guilt-Free Spending (Uang Aman)",
+                        amount = FormatUtils.formatRupiah(safeMoney),
+                        subtitle = "Calculated after locked savings & daily limits",
+                        badge = "Optimal 🛡️",
+                        badgeColor = ViNoteMintSuccess.copy(alpha = 0.2f),
+                        badgeTextColor = Color(0xFF00796B)
+                    )
+                } else if (!isUser && (message.text.contains("spent", ignoreCase = true) || message.text.contains("Food", ignoreCase = true) || message.text.contains("habis", ignoreCase = true))) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    StructuredFinancialCard(
+                        title = "Today's Total Expenditure",
+                        amount = FormatUtils.formatRupiah(todaySpent),
+                        subtitle = "Tracked across connected e-wallets & cards",
+                        badge = "Discretionary ⚡",
+                        badgeColor = ViNoteSecondaryFixed.copy(alpha = 0.6f),
+                        badgeTextColor = ViNotePrimary
+                    )
+                }
+            }
         }
 
-        // Actionable response chips below assistant messages
+        // Quick action chips below NoTa messages
         if (!isUser && message.quickChips.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -569,7 +734,8 @@ private fun ChatBubble(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(ViNoteSecondaryFixed.copy(alpha = 0.5f))
+                            .background(ViNoteSecondaryFixed.copy(alpha = 0.6f))
+                            .border(1.dp, ViNotePrimary.copy(alpha = 0.2f), RoundedCornerShape(50))
                             .clickable { onChipClicked(chip) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -587,7 +753,66 @@ private fun ChatBubble(
 }
 
 @Composable
-private fun TypingIndicatorBubble() {
+private fun StructuredFinancialCard(
+    title: String,
+    amount: String,
+    subtitle: String,
+    badge: String,
+    badgeColor: Color,
+    badgeTextColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(ViNoteSurfaceContainerLow)
+            .border(1.dp, ViNoteOutlineVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ViNoteTextSecondary
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(badgeColor)
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeTextColor
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = amount,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = ViNoteTextPrimary
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = ViNoteTextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotaTypingBubble() {
     val infiniteTransition = rememberInfiniteTransition(label = "typing_dots")
     val dot1 by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -622,6 +847,7 @@ private fun TypingIndicatorBubble() {
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(ViNoteSurfaceContainerLow)
+            .border(1.dp, ViNoteOutlineVariant.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
@@ -652,7 +878,7 @@ private fun TypingIndicatorBubble() {
             )
         }
         Text(
-            text = "Nota is calculating...",
+            text = "NoTa is thinking...",
             fontSize = 13.sp,
             color = ViNoteTextSecondary
         )

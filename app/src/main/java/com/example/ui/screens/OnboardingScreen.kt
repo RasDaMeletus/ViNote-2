@@ -39,6 +39,7 @@ import com.example.ui.theme.ViNoteWarmYellow
 @Composable
 fun OnboardingScreen(
     onGetStarted: () -> Unit,
+    onLogin: () -> Unit = onGetStarted,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -111,7 +112,7 @@ fun OnboardingScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Track expenses automatically, reach your dream goals, and chat with your companion anytime.",
+                    text = "Track expenses automatically, reach your dream goals, and keep your budget safe with your lively companion.",
                     fontSize = 15.sp,
                     color = ViNoteTextSecondary,
                     textAlign = TextAlign.Center,
@@ -127,7 +128,7 @@ fun OnboardingScreen(
                     .padding(bottom = 24.dp)
             ) {
                 ViNoteButton(
-                    text = "Get Started",
+                    text = "Get Started (Sign Up)",
                     onClick = onGetStarted,
                     testTag = "onboarding_get_started_btn"
                 )
@@ -135,8 +136,8 @@ fun OnboardingScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 ViNoteButton(
-                    text = "I already have an account",
-                    onClick = onGetStarted,
+                    text = "I already have an account (Log In)",
+                    onClick = onLogin,
                     type = ViNoteButtonType.GHOST,
                     testTag = "onboarding_login_btn"
                 )

@@ -38,6 +38,9 @@ import com.example.ui.components.ViNoteBottomNavigation
 import com.example.ui.components.ViNoteNavTab
 import com.example.ui.screens.ActivityScreen
 import com.example.ui.screens.AddTransactionScreen
+import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.BankIntegrationsScreen
+import com.example.ui.screens.BudgetExceededDialog
 import com.example.ui.screens.CreateGoalDialog
 import com.example.ui.screens.CustomizeNotaScreen
 import com.example.ui.screens.EWalletsScreen
@@ -46,6 +49,8 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MeScreen
 import com.example.ui.screens.NotaAssistantScreen
 import com.example.ui.screens.OnboardingScreen
+import com.example.ui.screens.ProfileSettingsScreen
+import com.example.ui.screens.QuickSetupScreen
 import com.example.ui.screens.ScanReceiptScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.TransactionConfirmDialog
@@ -64,7 +69,11 @@ enum class ActiveScreen {
     E_WALLETS,
     CUSTOMIZE_NOTA,
     SETTINGS,
-    ONBOARDING
+    ONBOARDING,
+    AUTH,
+    QUICK_SETUP,
+    PROFILE_SETTINGS,
+    BANK_INTEGRATIONS
 }
 
 class MainActivity : ComponentActivity() {
@@ -95,7 +104,35 @@ fun ViNoteApp(viewModel: ViNoteViewModel) {
         when (currentScreen) {
             ActiveScreen.ONBOARDING -> {
                 OnboardingScreen(
-                    onGetStarted = { currentScreen = ActiveScreen.MAIN_TABS }
+                    onGetStarted = { currentScreen = ActiveScreen.AUTH },
+                    onLogin = { currentScreen = ActiveScreen.AUTH }
+                )
+            }
+            ActiveScreen.AUTH -> {
+                AuthScreen(
+                    viewModel = viewModel,
+                    onLoginSuccess = { currentScreen = ActiveScreen.MAIN_TABS },
+                    onSignupSuccess = { currentScreen = ActiveScreen.QUICK_SETUP }
+                )
+            }
+            ActiveScreen.QUICK_SETUP -> {
+                QuickSetupScreen(
+                    viewModel = viewModel,
+                    onSetupComplete = { currentScreen = ActiveScreen.MAIN_TABS }
+                )
+            }
+            ActiveScreen.PROFILE_SETTINGS -> {
+                ProfileSettingsScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = ActiveScreen.MAIN_TABS },
+                    onSignOut = { currentScreen = ActiveScreen.AUTH },
+                    onNavigateToBankIntegrations = { currentScreen = ActiveScreen.BANK_INTEGRATIONS }
+                )
+            }
+            ActiveScreen.BANK_INTEGRATIONS -> {
+                BankIntegrationsScreen(
+                    viewModel = viewModel,
+                    onBack = { currentScreen = ActiveScreen.MAIN_TABS }
                 )
             }
             ActiveScreen.ADD_TRANSACTION -> {
@@ -134,7 +171,9 @@ fun ViNoteApp(viewModel: ViNoteViewModel) {
                 SettingsScreen(
                     viewModel = viewModel,
                     onBack = { currentScreen = ActiveScreen.MAIN_TABS },
-                    onSignOut = { currentScreen = ActiveScreen.ONBOARDING }
+                    onSignOut = { currentScreen = ActiveScreen.AUTH },
+                    onNavigateToProfileSettings = { currentScreen = ActiveScreen.PROFILE_SETTINGS },
+                    onNavigateToBankIntegrations = { currentScreen = ActiveScreen.BANK_INTEGRATIONS }
                 )
             }
             ActiveScreen.MAIN_TABS -> {
@@ -176,6 +215,8 @@ fun ViNoteApp(viewModel: ViNoteViewModel) {
                                 viewModel = viewModel,
                                 onNavigateToCustomizeNota = { currentScreen = ActiveScreen.CUSTOMIZE_NOTA },
                                 onNavigateToEWallets = { currentScreen = ActiveScreen.E_WALLETS },
+                                onNavigateToBankIntegrations = { currentScreen = ActiveScreen.BANK_INTEGRATIONS },
+                                onNavigateToProfileSettings = { currentScreen = ActiveScreen.PROFILE_SETTINGS },
                                 onNavigateToSettings = { currentScreen = ActiveScreen.SETTINGS }
                             )
                         }
@@ -190,6 +231,9 @@ fun ViNoteApp(viewModel: ViNoteViewModel) {
                 }
             }
         }
+
+        // Budget Exceeded Furious NoTa Dialog Alert
+        BudgetExceededDialog(viewModel = viewModel)
 
         // Pending Transaction Confirmation Dialog
         pendingTx?.let { tx ->

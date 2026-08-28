@@ -69,10 +69,13 @@ fun MeScreen(
     viewModel: ViNoteViewModel,
     onNavigateToCustomizeNota: () -> Unit,
     onNavigateToEWallets: () -> Unit,
+    onNavigateToBankIntegrations: () -> Unit = onNavigateToEWallets,
+    onNavigateToProfileSettings: () -> Unit = {},
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val notaConfig by viewModel.notaConfig.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
 
     Box(
         modifier = modifier
@@ -105,23 +108,25 @@ fun MeScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = "Me",
-                        fontSize = 26.sp,
+                        text = userProfile.fullName,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = ViNoteTextPrimary
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Badge: Financial Explorer
+                    // Badge: Financial Persona / Profile Settings link
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .background(ViNoteSecondaryFixed)
+                            .clickable { onNavigateToProfileSettings() }
                             .padding(horizontal = 14.dp, vertical = 5.dp)
+                            .testTag("me_profile_settings_badge")
                     ) {
                         Text(
-                            text = "Financial Explorer",
+                            text = "${userProfile.financialPersona} • Edit Profile ✏️",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = ViNotePrimary
@@ -226,9 +231,9 @@ fun MeScreen(
                             icon = Icons.Default.AccountBalance,
                             iconBg = ViNoteMintSuccess.copy(alpha = 0.2f),
                             iconTint = ViNoteMintSuccess,
-                            title = "Bank Accounts",
-                            subtitle = "BCA Connected",
-                            onClick = onNavigateToEWallets,
+                            title = "Bank Accounts & Open Banking",
+                            subtitle = "BCA, Mandiri, Jago Linked",
+                            onClick = onNavigateToBankIntegrations,
                             showDivider = false
                         )
                     }

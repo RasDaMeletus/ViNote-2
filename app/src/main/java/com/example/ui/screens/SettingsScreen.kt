@@ -79,6 +79,8 @@ fun SettingsScreen(
     viewModel: ViNoteViewModel,
     onBack: () -> Unit,
     onSignOut: () -> Unit,
+    onNavigateToProfileSettings: () -> Unit = {},
+    onNavigateToBankIntegrations: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var notificationsEnabled by remember { mutableStateOf(true) }
@@ -87,6 +89,7 @@ fun SettingsScreen(
 
     val syncStatus by viewModel.syncStatus.collectAsState()
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
 
     val infiniteTransition = rememberInfiniteTransition(label = "settings_sync_anim")
     val rotationAngle by infiniteTransition.animateFloat(
@@ -241,9 +244,15 @@ fun SettingsScreen(
                     ViNoteCard(padding = 0.dp) {
                         SettingsRow(
                             icon = Icons.Default.Person,
-                            title = "Profile",
-                            subtitle = "farras@example.com",
-                            onClick = {}
+                            title = "Profile & Budget Settings",
+                            subtitle = "${userProfile.fullName} (${userProfile.email})",
+                            onClick = onNavigateToProfileSettings
+                        )
+                        SettingsRow(
+                            icon = Icons.Default.MonetizationOn,
+                            title = "Bank Integrations & E-Wallets",
+                            subtitle = "Link BCA, Mandiri, GoPay & Auto-Sync",
+                            onClick = onNavigateToBankIntegrations
                         )
                         SettingsToggleRow(
                             icon = Icons.Default.Fingerprint,

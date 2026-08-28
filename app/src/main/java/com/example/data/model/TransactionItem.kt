@@ -12,7 +12,9 @@ enum class TransactionSource {
     MANUAL,
     VOICE,
     SCAN,
-    E_WALLET
+    E_WALLET,
+    AUTO_DETECTED,
+    BANK_SYNC
 }
 
 @Entity(tableName = "transactions")

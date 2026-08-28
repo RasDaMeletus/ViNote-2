@@ -3,11 +3,14 @@ package com.example.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.core.ai.OpenRouterMessage
 import com.example.data.engine.ExtractedReceiptData
 import com.example.data.engine.ExtractedVoiceEntity
 import com.example.data.engine.OfflineNlpEngine
 import com.example.data.local.ViNoteDatabase
 import com.example.data.model.Achievement
+import com.example.data.model.BankAccountItem
+import com.example.data.model.BudgetAlertState
 import com.example.data.model.ChatMessage
 import com.example.data.model.ConnectedWallet
 import com.example.data.model.GoalItem
@@ -19,9 +22,25 @@ import com.example.data.model.NotaPresenceMode
 import com.example.data.model.TransactionItem
 import com.example.data.model.TransactionSource
 import com.example.data.model.TransactionType
+import com.example.data.model.UserProfile
+import com.example.data.repository.FirestoreExpenseSyncRepository
 import com.example.data.repository.SyncResult
 import com.example.data.repository.SyncStatus
 import com.example.data.repository.ViNoteRepository
+import com.example.domain.ai.AiAction
+import com.example.domain.ai.AiIntent
+import com.example.domain.ai.AiModelConfig
+import com.example.domain.ai.ViNoteAiService
+import com.example.domain.finance.FinancialAnalyticsService
+import com.example.domain.finance.FinancialHealthReport
+import com.example.domain.finance.SpendingTrendReport
+import com.example.domain.notification.FinancialEventType
+import com.example.domain.notification.FinancialNotificationEngine
+import com.example.domain.transaction.TransactionService
+import com.example.domain.wallet.WalletNotification
+import com.example.services.wallet.WalletDeduplicationService
+import com.example.services.wallet.WalletNotificationListenerService
+import com.example.services.wallet.WalletTransactionProcessor
 import com.example.ui.components.FormatUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,8 +48,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 enum class ActivityFilter {
     ALL,
@@ -41,9 +62,31 @@ enum class ActivityFilter {
 class ViNoteViewModel(application: Application) : AndroidViewModel(application) {
     private val database = ViNoteDatabase.getDatabase(application)
     private val repository = ViNoteRepository(database.transactionDao(), database.goalDao())
+    private val firestoreSyncRepository = FirestoreExpenseSyncRepository()
+
+    // Domain Services
+    val notificationEngine = FinancialNotificationEngine(application)
+    val transactionService = TransactionService(
+        transactionDao = database.transactionDao(),
+        firestoreSyncRepository = firestoreSyncRepository,
+        notificationEngine = notificationEngine,
+        externalScope = viewModelScope
+    )
+    val aiService = ViNoteAiService()
+    val deduplicationService = WalletDeduplicationService()
+    val walletProcessor = WalletTransactionProcessor(
+        transactionService = transactionService,
+        deduplicationService = deduplicationService,
+        aiService = aiService,
+        scope = viewModelScope
+    )
+
+    // AI Model Configuration
+    private val _aiConfig = MutableStateFlow(AiModelConfig())
+    val aiConfig = _aiConfig.asStateFlow()
 
     // Transactions Flow
-    val allTransactions: StateFlow<List<TransactionItem>> = repository.allTransactions
+    val allTransactions: StateFlow<List<TransactionItem>> = transactionService.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Goals Flow
@@ -76,6 +119,81 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
             matchesQuery && matchesFilter
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // User Profile State
+    private val _userProfile = MutableStateFlow(UserProfile())
+    val userProfile = _userProfile.asStateFlow()
+
+    // Auth State
+    private val _isLoggedIn = MutableStateFlow(true)
+    val isLoggedIn = _isLoggedIn.asStateFlow()
+
+    // Bank Accounts & E-Wallets
+    private val _bankAccounts = MutableStateFlow(
+        listOf(
+            BankAccountItem("bca_1", "Bank Central Asia (BCA)", "•••• 8821", "FARRAS SYAFIQ", 4850000L, isConnected = true, isAutoSync = true, "Just now", "#003893", "Bank"),
+            BankAccountItem("mandiri_1", "Bank Mandiri (Livin')", "•••• 4102", "FARRAS SYAFIQ", 2300000L, isConnected = true, isAutoSync = true, "10 mins ago", "#002B66", "Bank"),
+            BankAccountItem("jago_1", "Bank Jago", "•••• 7731", "FARRAS SYAFIQ", 1150000L, isConnected = true, isAutoSync = false, "Today", "#FF6B00", "Bank"),
+            BankAccountItem("bni_1", "Bank BNI", "•••• 2290", "FARRAS SYAFIQ", 0L, isConnected = false, isAutoSync = false, "Never", "#005E6A", "Bank"),
+            BankAccountItem("bri_1", "Bank BRI (BRImo)", "•••• 5519", "FARRAS SYAFIQ", 0L, isConnected = false, isAutoSync = false, "Never", "#00529C", "Bank"),
+            BankAccountItem("seabank_1", "SeaBank", "•••• 9021", "FARRAS SYAFIQ", 0L, isConnected = false, isAutoSync = false, "Never", "#FF5722", "Bank"),
+            BankAccountItem("gopay_1", "GoPay", "0812-3456-7890", "FARRAS SYAFIQ", 185000L, isConnected = true, isAutoSync = true, "Just now", "#00B14F", "E-Wallet"),
+            BankAccountItem("ovo_1", "OVO", "0812-3456-7890", "FARRAS SYAFIQ", 92500L, isConnected = true, isAutoSync = true, "1 hr ago", "#4C3494", "E-Wallet"),
+            BankAccountItem("dana_1", "DANA", "0812-3456-7890", "FARRAS SYAFIQ", 45000L, isConnected = false, isAutoSync = false, "Never", "#118EEA", "E-Wallet"),
+            BankAccountItem("shopee_1", "ShopeePay", "0812-3456-7890", "FARRAS SYAFIQ", 0L, isConnected = false, isAutoSync = false, "Never", "#EE4D2D", "E-Wallet")
+        )
+    )
+    val bankAccounts = _bankAccounts.asStateFlow()
+
+    // Budget Exceeded Furious Alert State
+    private val _budgetAlertState = MutableStateFlow(BudgetAlertState())
+    val budgetAlertState = _budgetAlertState.asStateFlow()
+
+    // Total Aggregated Bank Balance
+    val totalBankBalance: StateFlow<Long> = _bankAccounts.map { list ->
+        list.filter { it.isConnected }.sumOf { it.balance }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 8577500L)
+
+    // Today's Spent Aggregation
+    val todaySpent: StateFlow<Long> = allTransactions.map { list ->
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+        FinancialAnalyticsService.calculateSpentToday(list, startOfDay)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    // Dynamic Calculated Net Balance
+    val currentCalculatedBalance: StateFlow<Long> = allTransactions.map { list ->
+        FinancialAnalyticsService.calculateNetBalance(list)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1250000L)
+
+    // Dynamic Safe Money
+    val safeMoney: StateFlow<Long> = combine(
+        userProfile,
+        todaySpent
+    ) { profile, spent ->
+        val safe = FinancialAnalyticsService.calculateSafeMoney(profile.monthlyIncome, 0L, profile.dailyBudgetLimit)
+        (safe - spent).coerceAtLeast(0L)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 750000L)
+
+    // Spending Trends Flow calculated from real database transactions
+    val spendingTrends: StateFlow<SpendingTrendReport> = combine(
+        allTransactions,
+        userProfile
+    ) { transactions, profile ->
+        FinancialAnalyticsService.calculateSpendingTrends(
+            transactions = transactions,
+            dailyLimit = profile.dailyBudgetLimit
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        FinancialAnalyticsService.calculateSpendingTrends(emptyList(), 180000L)
+    )
 
     // Connected Wallets
     private val _wallets = MutableStateFlow(
@@ -116,7 +234,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
             ChatMessage(
                 text = "Hey! What are we figuring out today?",
                 isUser = false,
-                quickChips = listOf("Can I afford this?", "Where did my money go?", "Help me save"),
+                quickChips = listOf("Saldo aku berapa?", "Uangku paling banyak habis buat apa?", "Help me save"),
                 eyeState = NotaEyeState.CURIOUS
             )
         )
@@ -173,11 +291,52 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedTransactionDetail = MutableStateFlow<TransactionItem?>(null)
     val selectedTransactionDetail = _selectedTransactionDetail.asStateFlow()
 
-    // Computed Financial Balances
+    // Computed Constants
     val baseAvailableBalance: Long = 1250000L
-    val safeMoney: Long = 750000L
     val mandatorySavings: Long = 500000L
-    val dailyLimit: Long = 180000L
+    val dailyLimit: Long get() = _userProfile.value.dailyBudgetLimit
+
+    init {
+        // Register global processor for Android system notification listener
+        WalletNotificationListenerService.globalProcessor = walletProcessor
+
+        // Listen for internal financial engine events
+        viewModelScope.launch {
+            notificationEngine.events.collect { event ->
+                when (event.type) {
+                    FinancialEventType.BUDGET_WARNING -> {
+                        evaluateBudgetStatus()
+                    }
+                    FinancialEventType.TRANSACTION_DETECTED -> {
+                        showBanner("✨ ${event.title}: ${event.message}")
+                        evaluateBudgetStatus()
+                    }
+                    FinancialEventType.GOAL_PROGRESS -> {
+                        showBanner(event.message)
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    // OpenRouter AI Config setters
+    fun setOpenRouterApiKey(key: String) {
+        _aiConfig.value = _aiConfig.value.copy(apiKey = key)
+        aiService.updateApiKey(key)
+        showBanner(if (key.isNotBlank()) "OpenRouter API Key saved! 🤖" else "OpenRouter key cleared")
+    }
+
+    fun setOpenRouterModel(model: String) {
+        _aiConfig.value = _aiConfig.value.copy(selectedModel = model)
+        aiService.updateModel(model)
+        showBanner("AI Model set to $model")
+    }
+
+    fun toggleOnlineAi(enabled: Boolean) {
+        _aiConfig.value = _aiConfig.value.copy(isOnlineAiEnabled = enabled)
+        showBanner(if (enabled) "Online AI Assistant Enabled" else "Offline AI Mode Enabled")
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -189,6 +348,8 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun toggleDetection(enabled: Boolean) {
         _isDetectionActive.value = enabled
+        WalletNotificationListenerService.isListenerActive = enabled
+        showBanner(if (enabled) "Automatic E-Wallet detection active" else "Automatic detection paused")
     }
 
     fun toggleWalletSync(walletId: String) {
@@ -266,13 +427,238 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
         _pendingTransaction.value = transaction
     }
 
+    // Authentication and Onboarding
+    fun login(email: String, pass: String): Boolean {
+        _isLoggedIn.value = true
+        _userProfile.value = _userProfile.value.copy(
+            email = email,
+            fullName = if (email.contains("@")) email.substringBefore("@").replace(".", " ").replaceFirstChar { it.uppercase() } else "Farras Syafiq"
+        )
+        showBanner("Welcome back, ${_userProfile.value.fullName}! ✨")
+        return true
+    }
+
+    fun signup(fullName: String, email: String, pass: String): Boolean {
+        _isLoggedIn.value = true
+        val initials = fullName.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
+        _userProfile.value = _userProfile.value.copy(
+            fullName = fullName,
+            email = email,
+            avatarInitials = if (initials.isNotEmpty()) initials else "FS"
+        )
+        showBanner("Account created successfully! 🎉")
+        return true
+    }
+
+    fun completeQuickSetup(
+        monthlyIncome: Long,
+        dailyBudgetLimit: Long,
+        savingsPercentage: Int,
+        firstGoalTitle: String,
+        firstGoalTarget: Long,
+        startingColor: NotaBaseColor
+    ) {
+        _userProfile.value = _userProfile.value.copy(
+            monthlyIncome = monthlyIncome,
+            dailyBudgetLimit = dailyBudgetLimit,
+            savingsTargetPercentage = savingsPercentage
+        )
+        _notaConfig.value = _notaConfig.value.copy(baseColor = startingColor, eyeState = NotaEyeState.HAPPY)
+        if (firstGoalTitle.isNotBlank() && firstGoalTarget > 0) {
+            createGoal(firstGoalTitle, firstGoalTarget, "In 3 months", "Savings")
+        }
+        showBanner("Quick setup complete! Welcome to ViNote 🚀")
+    }
+
+    fun logout() {
+        _isLoggedIn.value = false
+        showBanner("Logged out successfully")
+    }
+
+    // Profile Settings updates
+    fun updateProfile(
+        fullName: String,
+        email: String,
+        phone: String,
+        monthlyIncome: Long,
+        dailyBudgetLimit: Long,
+        savingsPercentage: Int,
+        currencyCode: String,
+        currencySymbol: String,
+        persona: String,
+        isBudgetAlertActive: Boolean
+    ) {
+        val initials = fullName.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
+        _userProfile.value = _userProfile.value.copy(
+            fullName = fullName,
+            email = email,
+            phone = phone,
+            monthlyIncome = monthlyIncome,
+            dailyBudgetLimit = dailyBudgetLimit,
+            savingsTargetPercentage = savingsPercentage,
+            currencyCode = currencyCode,
+            currencySymbol = currencySymbol,
+            financialPersona = persona,
+            isBudgetAlertActive = isBudgetAlertActive,
+            avatarInitials = if (initials.isNotEmpty()) initials else "FS"
+        )
+        showBanner("Profile & Budget settings updated! 💾")
+    }
+
+    // Bank Integrations Methods
+    fun toggleBankConnection(bankId: String) {
+        _bankAccounts.value = _bankAccounts.value.map {
+            if (it.id == bankId) {
+                val newStatus = !it.isConnected
+                it.copy(
+                    isConnected = newStatus,
+                    isAutoSync = if (!newStatus) false else it.isAutoSync,
+                    lastSyncedTime = if (newStatus) "Just now" else "Never"
+                )
+            } else it
+        }
+        val target = _bankAccounts.value.find { it.id == bankId }
+        val msg = if (target?.isConnected == true) "${target.bankName} connected successfully! 🏦" else "${target?.bankName} disconnected"
+        showBanner(msg)
+    }
+
+    fun toggleBankAutoSync(bankId: String) {
+        _bankAccounts.value = _bankAccounts.value.map {
+            if (it.id == bankId) it.copy(isAutoSync = !it.isAutoSync) else it
+        }
+        val target = _bankAccounts.value.find { it.id == bankId }
+        showBanner(if (target?.isAutoSync == true) "Auto-sync enabled for ${target.bankName}" else "Auto-sync paused")
+    }
+
+    fun syncAllBankStatements() {
+        viewModelScope.launch {
+            showBanner("Syncing bank transactions via Open Banking API...")
+            delay(1000)
+            _bankAccounts.value = _bankAccounts.value.map {
+                if (it.isConnected) it.copy(lastSyncedTime = "Just now") else it
+            }
+            // Add a simulated bank auto-recorded transaction to showcase the sync live
+            transactionService.addTransaction(
+                title = "Coffee Bean & Tea Leaf",
+                amount = 48000L,
+                category = "Food",
+                type = TransactionType.EXPENSE,
+                merchant = "Coffee Bean",
+                source = TransactionSource.BANK_SYNC,
+                timeLabel = "Synced from BCA"
+            )
+            evaluateBudgetStatus()
+            showBanner("Bank statements synced: 1 new transaction imported! ⚡")
+        }
+    }
+
+    fun connectNewBank(bankName: String, accountNumber: String, balance: Long, type: String) {
+        val newId = "bank_${System.currentTimeMillis()}"
+        val colors = listOf("#003893", "#002B66", "#005E6A", "#FF6B00", "#118EEA", "#00B14F")
+        val newBank = BankAccountItem(
+            id = newId,
+            bankName = bankName,
+            accountNumber = accountNumber,
+            accountHolder = _userProfile.value.fullName.uppercase(),
+            balance = balance,
+            isConnected = true,
+            isAutoSync = true,
+            lastSyncedTime = "Just now",
+            brandColorHex = colors.random(),
+            bankType = type
+        )
+        _bankAccounts.value = _bankAccounts.value + newBank
+        showBanner("Successfully linked $bankName! 💳")
+    }
+
+    // Budget Exceeded Furious Logic
+    private fun evaluateBudgetStatus() {
+        if (!_userProfile.value.isBudgetAlertActive) return
+        val currentSpent = todaySpent.value
+        val limit = _userProfile.value.dailyBudgetLimit
+        if (limit > 0 && currentSpent > limit && !_budgetAlertState.value.isTriggered) {
+            val overage = currentSpent - limit
+            _budgetAlertState.value = BudgetAlertState(
+                isTriggered = true,
+                spentToday = currentSpent,
+                dailyLimit = limit,
+                overageAmount = overage,
+                message = "CRITICAL ALERT: You spent ${FormatUtils.formatRupiah(currentSpent)} today, exceeding your daily limit of ${FormatUtils.formatRupiah(limit)} by ${FormatUtils.formatRupiah(overage)}! NoTa is furious! 💢",
+                isDismissed = false
+            )
+            _notaConfig.value = _notaConfig.value.copy(eyeState = NotaEyeState.FURIOUS)
+            notificationEngine.notifyBudgetExceeded(overage, limit)
+            showBanner("🚨 BUDGET EXCEEDED! NoTa is FURIOUS! 💢")
+        }
+    }
+
+    fun simulateBudgetExceededAlert() {
+        val limit = _userProfile.value.dailyBudgetLimit
+        val simulatedSpent = limit + 65000L
+        _budgetAlertState.value = BudgetAlertState(
+            isTriggered = true,
+            spentToday = simulatedSpent,
+            dailyLimit = limit,
+            overageAmount = 65000L,
+            message = "CRITICAL ALERT: You spent ${FormatUtils.formatRupiah(simulatedSpent)} today, exceeding your daily limit of ${FormatUtils.formatRupiah(limit)} by ${FormatUtils.formatRupiah(65000L)}! NoTa is furious! 💢",
+            isDismissed = false
+        )
+        _notaConfig.value = _notaConfig.value.copy(eyeState = NotaEyeState.FURIOUS)
+        showBanner("🚨 BUDGET EXCEEDED ALERT TRIGGERED! 💢")
+    }
+
+    fun simulateIncomingWalletNotification(
+        packageName: String = "com.gojek.app",
+        title: String = "GoPay",
+        text: String = "Pembayaran Rp 45.000 ke Kopi Kenangan berhasil"
+    ) {
+        viewModelScope.launch {
+            val notif = WalletNotification(
+                packageName = packageName,
+                title = title,
+                text = text,
+                timestamp = System.currentTimeMillis()
+            )
+            val (success, message) = walletProcessor.processNotification(notif)
+            if (success) {
+                showBanner("⚡ Auto-Detected: $message")
+                evaluateBudgetStatus()
+            } else {
+                showBanner("Detection: $message")
+            }
+        }
+    }
+
+    fun dismissBudgetAlert() {
+        _budgetAlertState.value = _budgetAlertState.value.copy(isDismissed = true)
+    }
+
+    fun calmNotaDown(newDailyLimit: Long? = null) {
+        if (newDailyLimit != null && newDailyLimit > 0) {
+            _userProfile.value = _userProfile.value.copy(dailyBudgetLimit = newDailyLimit)
+        }
+        _budgetAlertState.value = _budgetAlertState.value.copy(isTriggered = false, isDismissed = true)
+        _notaConfig.value = _notaConfig.value.copy(eyeState = NotaEyeState.HAPPY)
+        showBanner("NoTa calmed down: 'Thanks for keeping your promise! Let's stay on track! 💙'")
+    }
+
     fun confirmPendingTransaction() {
         _pendingTransaction.value?.let { tx ->
             viewModelScope.launch {
-                repository.insertTransaction(tx)
+                transactionService.addTransaction(
+                    title = tx.title,
+                    amount = tx.amount,
+                    category = tx.category,
+                    type = tx.type,
+                    source = tx.source,
+                    merchant = tx.merchant,
+                    walletName = tx.walletName
+                )
                 _pendingTransaction.value = null
                 _keypadAmount.value = "0"
                 showBanner("Payment recorded: ${FormatUtils.formatRupiah(tx.amount)} (${tx.category})")
+                delay(300)
+                evaluateBudgetStatus()
             }
         }
     }
@@ -283,7 +669,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun addManualTransaction(title: String, amount: Long, category: String, type: TransactionType = TransactionType.EXPENSE) {
         viewModelScope.launch {
-            val item = TransactionItem(
+            transactionService.addTransaction(
                 title = title,
                 amount = amount,
                 category = category,
@@ -292,8 +678,9 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
                 source = TransactionSource.MANUAL,
                 timeLabel = "Just now"
             )
-            repository.insertTransaction(item)
             showBanner("Transaction added!")
+            delay(300)
+            evaluateBudgetStatus()
         }
     }
 
@@ -303,7 +690,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deleteTransaction(id: Long) {
         viewModelScope.launch {
-            repository.deleteTransaction(id)
+            transactionService.deleteTransaction(id)
             if (_selectedTransactionDetail.value?.id == id) {
                 _selectedTransactionDetail.value = null
             }
@@ -313,7 +700,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearAllTransactions() {
         viewModelScope.launch {
-            repository.clearAllTransactions()
+            transactionService.clearAll()
             _selectedTransactionDetail.value = null
             showBanner("All transaction history deleted")
         }
@@ -366,6 +753,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val updated = goal.copy(currentAmount = (goal.currentAmount + amount).coerceAtMost(goal.targetAmount))
             repository.updateGoal(updated)
+            notificationEngine.notifyGoalProgress(goal.title, updated.currentAmount, goal.targetAmount)
             showBanner("Saved ${FormatUtils.formatRupiah(amount)} to ${goal.title}!")
         }
     }
@@ -377,7 +765,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Voice Input & Offline NLP Processing
+    // Voice Input & NLP Processing
     fun setVoiceTranscript(text: String) {
         _voiceTranscript.value = text
         _parsedVoiceEntity.value = OfflineNlpEngine.parseSpokenTransaction(text)
@@ -400,22 +788,23 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun processVoiceInput() {
-        val transcript = _voiceTranscript.value
-        val entity = OfflineNlpEngine.parseSpokenTransaction(transcript)
-        _parsedVoiceEntity.value = entity
+        viewModelScope.launch {
+            val transcript = _voiceTranscript.value
+            val parsedAi = aiService.parseNaturalLanguageTransaction(transcript, _aiConfig.value.isOnlineAiEnabled)
 
-        _pendingTransaction.value = TransactionItem(
-            title = entity.title,
-            amount = entity.amount,
-            category = entity.category,
-            type = entity.type,
-            merchant = entity.merchant,
-            source = TransactionSource.VOICE,
-            timeLabel = "Just now"
-        )
+            _pendingTransaction.value = TransactionItem(
+                title = parsedAi.title,
+                amount = parsedAi.amount,
+                category = parsedAi.category,
+                type = parsedAi.type,
+                merchant = parsedAi.merchant,
+                source = TransactionSource.VOICE,
+                timeLabel = "Just now"
+            )
+        }
     }
 
-    // Receipt Scan & Offline OCR Processing
+    // Receipt Scan & OCR Processing
     fun selectReceiptPreset(presetName: String) {
         _selectedReceiptPreset.value = presetName
         val lines = OfflineNlpEngine.sampleReceipts[presetName] ?: emptyList()
@@ -425,11 +814,12 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
     fun startReceiptScanning(receiptName: String? = null, onComplete: () -> Unit) {
         viewModelScope.launch {
             _isScanning.value = true
-            delay(1200)
+            delay(1000)
 
             val targetPreset = receiptName ?: _selectedReceiptPreset.value
             val lines = OfflineNlpEngine.sampleReceipts[targetPreset] ?: OfflineNlpEngine.sampleReceipts.values.first()
-            val parsedData = OfflineNlpEngine.parseReceiptTextLines(lines)
+            val parsedData = aiService.parseReceiptLines(lines, _aiConfig.value.isOnlineAiEnabled)
+
             _extractedReceiptData.value = parsedData
             _isScanning.value = false
 
@@ -455,10 +845,53 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             _isNotaTyping.value = true
-            delay(1200)
 
-            val reply = generateNotaResponse(userText)
-            _chatMessages.value = _chatMessages.value + reply
+            // Build history messages
+            val history = _chatMessages.value.takeLast(6).map {
+                OpenRouterMessage(if (it.isUser) "user" else "assistant", it.text)
+            }
+
+            val aiResponse = aiService.chatWithNota(
+                userMessage = userText,
+                userProfile = _userProfile.value,
+                transactions = allTransactions.value,
+                goals = allGoals.value,
+                accounts = _bankAccounts.value,
+                dailyLimit = dailyLimit,
+                safeMoney = safeMoney.value,
+                conversationHistory = history,
+                isOnlineAllowed = _aiConfig.value.isOnlineAiEnabled
+            )
+
+            // Check if action proposes a transaction
+            if (aiResponse.action is AiAction.ProposeTransaction) {
+                val parsed = aiResponse.action.transaction
+                _pendingTransaction.value = TransactionItem(
+                    title = parsed.title,
+                    amount = parsed.amount,
+                    category = parsed.category,
+                    type = parsed.type,
+                    merchant = parsed.merchant,
+                    walletName = parsed.wallet,
+                    source = TransactionSource.AUTO_DETECTED,
+                    timeLabel = "Just now"
+                )
+            }
+
+            val eye = when (aiResponse.intent) {
+                AiIntent.CREATE_TRANSACTION -> NotaEyeState.EXCITED
+                AiIntent.QUERY_BALANCE -> NotaEyeState.HAPPY
+                AiIntent.FINANCIAL_ADVICE -> NotaEyeState.PROUD
+                AiIntent.QUERY_SPENDING -> NotaEyeState.THINKING
+                else -> NotaEyeState.HAPPY
+            }
+
+            _chatMessages.value = _chatMessages.value + ChatMessage(
+                text = aiResponse.message,
+                isUser = false,
+                quickChips = aiResponse.suggestedChips,
+                eyeState = eye
+            )
             _isNotaTyping.value = false
         }
     }
@@ -468,7 +901,7 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
             ChatMessage(
                 text = "Hey! What are we figuring out today?",
                 isUser = false,
-                quickChips = listOf("Can I afford this?", "Where did my money go?", "Help me save"),
+                quickChips = listOf("Saldo aku berapa?", "Uangku paling banyak habis buat apa?", "Help me save"),
                 eyeState = NotaEyeState.CURIOUS
             )
         )
@@ -481,83 +914,10 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
             NotaEyeState.EXCITED -> NotaEyeState.PROUD
             NotaEyeState.PROUD -> NotaEyeState.THINKING
             NotaEyeState.THINKING -> NotaEyeState.NEUTRAL
-            NotaEyeState.NEUTRAL -> NotaEyeState.HAPPY
+            NotaEyeState.NEUTRAL -> NotaEyeState.FURIOUS
+            NotaEyeState.FURIOUS -> NotaEyeState.HAPPY
         }
         _notaConfig.value = _notaConfig.value.copy(eyeState = nextEye)
-    }
-
-    private fun generateNotaResponse(query: String): ChatMessage {
-        val lower = query.lowercase()
-        val isPlayful = _notaConfig.value.personalitySlider > 50f
-
-        return when {
-            lower.contains("afford") || lower.contains("bisa beli") || lower.contains("cukup") || lower.contains("dinner") || lower.contains("makan malam") -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "You currently have Rp 750.000 in Uang Aman! ✨ If dinner is under Rp 150.000, you're 100% safe to go for it! 🍣"
-                    else
-                        "Based on your current balance of Rp 1.250.000 and safe spending threshold of Rp 750.000, discretionary spending under Rp 150.000 is fully within your daily limit.",
-                    isUser = false,
-                    quickChips = listOf("Check budget", "View goals", "Log expense"),
-                    eyeState = NotaEyeState.HAPPY
-                )
-            }
-            lower.contains("coffee") || lower.contains("kopi") -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "You spent Rp 45.000 on Kopi Kenangan this week! ☕ You're well within your coffee allowance. Treat yourself!"
-                    else
-                        "Coffee expenditures for the last 7 days total Rp 45.000, representing 4.3% of discretionary expenses.",
-                    isUser = false,
-                    quickChips = listOf("Set Coffee limit", "Where did my money go?"),
-                    eyeState = NotaEyeState.EXCITED
-                )
-            }
-            lower.contains("where did my money go") || lower.contains("kemana") || lower.contains("boros") || lower.contains("summary") || lower.contains("ringkasan") -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "I analyzed your spending! 🍔 58% went to Food (GrabFood & Kopi), and 24% to Transport. You're still on track for today's limit! 🚀"
-                    else
-                        "Top expense categories this week: Food (Rp 105.000) and Transportation (Rp 55.000). Total daily spending is currently at 42% of target limit.",
-                    isUser = false,
-                    quickChips = listOf("Set Food limit", "View Activity", "Save tips"),
-                    eyeState = NotaEyeState.THINKING
-                )
-            }
-            lower.contains("help me save") || lower.contains("tabung") || lower.contains("tips") || lower.contains("goal") -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "Yay! If you save Rp 15.000/day starting today, you'll reach your 'New Headphones' goal by next month! Shall we lock that in? 🎧✨"
-                    else
-                        "Recommended allocation: Divert Rp 25.000 daily to your 'Holiday' goal and maintain discretionary spending below Rp 60.000/day.",
-                    isUser = false,
-                    quickChips = listOf("Save Rp 15.000", "New Goal", "Check Safe Money"),
-                    eyeState = NotaEyeState.PROUD
-                )
-            }
-            lower.contains("safe money") || lower.contains("uang aman") || lower.contains("saldo") -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "Your Uang Aman is Rp 750.000! 🛡️ This is guilt-free spending money after all bills and savings are safely locked away."
-                    else
-                        "Your current safe spending limit is Rp 750.000, separated from reserved savings.",
-                    isUser = false,
-                    quickChips = listOf("Can I afford dinner?", "Help me save"),
-                    eyeState = NotaEyeState.HAPPY
-                )
-            }
-            else -> {
-                ChatMessage(
-                    text = if (isPlayful)
-                        "I'm keeping a close eye on all your transactions! Everything looks smooth today ✨ Ask me anything about your budget or wallets."
-                    else
-                        "All connected services (GoPay, OVO) are actively synchronized. Your financial health index is optimal at 80% (Level 8).",
-                    isUser = false,
-                    quickChips = listOf("Can I afford this?", "Where did my money go?", "Help me save"),
-                    eyeState = NotaEyeState.CURIOUS
-                )
-            }
-        }
     }
 
     private fun showBanner(message: String) {
@@ -570,3 +930,4 @@ class ViNoteViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 }
+

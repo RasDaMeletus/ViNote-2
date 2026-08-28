@@ -23,8 +23,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -68,6 +70,7 @@ fun NotaAvatar(
     modifier: Modifier = Modifier,
     size: Dp = 96.dp,
     eyeState: NotaEyeState = NotaEyeState.HAPPY,
+    customEyes: String? = null,
     baseColor: NotaBaseColor = NotaBaseColor.SOFT_PINK,
     accessory: NotaAccessory = NotaAccessory.NONE,
     showSparkle: Boolean = false,
@@ -110,12 +113,12 @@ fun NotaAvatar(
         remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
     }
 
-    val auraPulse by if (isAnimated && (eyeState == NotaEyeState.THINKING || eyeState == NotaEyeState.EXCITED || showSparkle)) {
+    val auraPulse by if (isAnimated && (eyeState == NotaEyeState.THINKING || eyeState == NotaEyeState.EXCITED || eyeState == NotaEyeState.FURIOUS || showSparkle)) {
         infiniteTransition.animateFloat(
             initialValue = 0.85f,
             targetValue = 1.18f,
             animationSpec = infiniteRepeatable(
-                animation = tween(1400, easing = FastOutSlowInEasing),
+                animation = tween(if (eyeState == NotaEyeState.FURIOUS) 400 else 1400, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "aura"
@@ -124,12 +127,28 @@ fun NotaAvatar(
         remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
     }
 
+    // Furious shaking vibration
+    val furiousShake by if (isAnimated && eyeState == NotaEyeState.FURIOUS) {
+        infiniteTransition.animateFloat(
+            initialValue = -5f,
+            targetValue = 5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(80, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "furious_shake"
+        )
+    } else {
+        remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    }
+
     // Dynamic tilt angle transition based on emotion/state
     val targetRotationAngle = when (eyeState) {
         NotaEyeState.THINKING -> -8f
         NotaEyeState.CURIOUS -> 6f
         NotaEyeState.EXCITED -> 4f
         NotaEyeState.PROUD -> -3f
+        NotaEyeState.FURIOUS -> 0f
         NotaEyeState.HAPPY -> 0f
         NotaEyeState.NEUTRAL -> 0f
     }
@@ -142,26 +161,29 @@ fun NotaAvatar(
         label = "nota_tilt"
     )
 
-    // Smooth color morphing transition
-    val rawBgColor = when (baseColor) {
-        NotaBaseColor.SOFT_PINK -> ViNoteSoftPink
-        NotaBaseColor.SOFT_BLUE -> ViNoteSecondaryFixed
-        NotaBaseColor.WARM_YELLOW -> ViNoteWarmYellow
-        NotaBaseColor.MINT_GREEN -> Color(0xFFE8F5E9)
+    // Smooth color morphing transition (fiery red-orange when furious)
+    val rawBgColor = when {
+        eyeState == NotaEyeState.FURIOUS -> Color(0xFFFFB4AB)
+        baseColor == NotaBaseColor.SOFT_PINK -> ViNoteSoftPink
+        baseColor == NotaBaseColor.SOFT_BLUE -> ViNoteSecondaryFixed
+        baseColor == NotaBaseColor.WARM_YELLOW -> ViNoteWarmYellow
+        baseColor == NotaBaseColor.MINT_GREEN -> Color(0xFFE8F5E9)
+        else -> ViNoteSoftPink
     }
     val animatedBgColor by animateColorAsState(
         targetValue = rawBgColor,
-        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
         label = "nota_bg_color"
     )
 
-    val eyesText = when (eyeState) {
+    val eyesText = customEyes ?: when (eyeState) {
         NotaEyeState.NEUTRAL -> "● ●"
         NotaEyeState.CURIOUS -> "⊙ ⊙"
         NotaEyeState.EXCITED -> "★ ★"
         NotaEyeState.HAPPY -> "◡ ◡"
         NotaEyeState.THINKING -> "● ◌"
         NotaEyeState.PROUD -> "✦ ✦"
+        NotaEyeState.FURIOUS -> "> <"
     }
 
     val eyeFontSize = (size.value * 0.28f).sp
@@ -169,8 +191,8 @@ fun NotaAvatar(
     Box(
         modifier = modifier
             .size(size)
-            .offset(y = floatOffset.dp)
-            .rotate(animatedRotation)
+            .offset(x = furiousShake.dp, y = floatOffset.dp)
+            .rotate(animatedRotation + furiousShake)
             .scale(pulseScale * bounceScale.value)
             .testTag("nota_avatar")
             .then(
@@ -254,18 +276,18 @@ fun NotaAvatar(
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .offset(y = (size.value * 0.12f).dp)
+                        .offset(y = (size.value * 0.14f).dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size((size.value * 0.12f).dp, (size.value * 0.08f).dp)
-                            .offset(x = -(size.value * 0.22f).dp)
+                            .size((size.value * 0.14f).dp, (size.value * 0.08f).dp)
+                            .offset(x = -(size.value * 0.20f).dp)
                             .background(Color(0x33BA1A1A), RoundedCornerShape(50))
                     )
                     Box(
                         modifier = Modifier
-                            .size((size.value * 0.12f).dp, (size.value * 0.08f).dp)
-                            .offset(x = (size.value * 0.22f).dp)
+                            .size((size.value * 0.14f).dp, (size.value * 0.08f).dp)
+                            .offset(x = (size.value * 0.20f).dp)
                             .background(Color(0x33BA1A1A), RoundedCornerShape(50))
                     )
                 }
@@ -294,76 +316,189 @@ fun NotaAvatar(
                 )
             }
 
-            // Accessories Overlay with smooth animated transitions
-            AnimatedContent(
-                targetState = accessory,
-                transitionSpec = {
-                    (fadeIn(tween(200)) + scaleIn(initialScale = 0.6f)).togetherWith(
-                        fadeOut(tween(150)) + scaleOut(targetScale = 0.6f)
+            // Glasses accessory sitting right over the eyes inside the circle
+            if (accessory == NotaAccessory.GLASSES) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = (-1).dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size((size.value * 0.30f).dp)
+                            .border(2.5.dp, ViNotePrimary, CircleShape)
+                            .background(ViNotePrimary.copy(alpha = 0.08f), CircleShape)
                     )
-                },
-                label = "nota_accessory_transition"
-            ) { currentAccessory ->
-                when (currentAccessory) {
-                    NotaAccessory.GLASSES -> {
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .offset(y = (-2).dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size((size.value * 0.32f).dp)
-                                    .border(2.5.dp, ViNotePrimary, CircleShape)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size((size.value * 0.10f).dp, 2.5.dp)
-                                    .align(Alignment.CenterVertically)
-                                    .background(ViNotePrimary)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size((size.value * 0.32f).dp)
-                                    .border(2.5.dp, ViNotePrimary, CircleShape)
-                            )
-                        }
-                    }
-                    NotaAccessory.BOWTIE -> {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .offset(y = -(size.value * 0.08f).dp)
-                                .size((size.value * 0.28f).dp, (size.value * 0.14f).dp)
-                                .background(ViNotePrimary, RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size((size.value * 0.08f).dp)
-                                    .background(Color.White, CircleShape)
-                            )
-                        }
-                    }
-                    NotaAccessory.HEADPHONES -> {
-                        Icon(
-                            imageVector = Icons.Default.Headphones,
-                            contentDescription = "Headphones",
-                            tint = ViNotePrimary,
-                            modifier = Modifier
-                                .size((size.value * 0.85f).dp)
-                                .align(Alignment.TopCenter)
-                                .offset(y = -(size.value * 0.05f).dp)
-                        )
-                    }
-                    NotaAccessory.NONE -> {}
+                    Box(
+                        modifier = Modifier
+                            .size((size.value * 0.12f).dp, 2.5.dp)
+                            .background(ViNotePrimary)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size((size.value * 0.30f).dp)
+                            .border(2.5.dp, ViNotePrimary, CircleShape)
+                            .background(ViNotePrimary.copy(alpha = 0.08f), CircleShape)
+                    )
                 }
+            }
+        }
+
+        // --- EXTERNAL ACCESSORIES (Headphones & Bowtie) FITTING PERFECTLY OUTSIDE/ON BORDER ---
+        AnimatedVisibility(
+            visible = accessory == NotaAccessory.HEADPHONES,
+            enter = fadeIn(tween(220)) + scaleIn(initialScale = 0.8f),
+            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f)
+        ) {
+            // High-fidelity snug headphones wrapping around NoTa's head
+            Box(
+                modifier = Modifier.size(size * 1.16f),
+                contentAlignment = Alignment.Center
+            ) {
+                // Top Headband Arc
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    val strokeWidth = size.toPx() * 0.065f
+                    val arcPadding = strokeWidth * 0.5f
+                    val arcRectSize = androidx.compose.ui.geometry.Size(
+                        this.size.width - (arcPadding * 2),
+                        this.size.height * 0.82f
+                    )
+                    // Headband curved arch over top
+                    drawArc(
+                        color = Color(0xFF003893),
+                        startAngle = 195f,
+                        sweepAngle = 150f,
+                        useCenter = false,
+                        topLeft = androidx.compose.ui.geometry.Offset(arcPadding, arcPadding * 1.2f),
+                        size = arcRectSize,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeWidth,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    )
+                }
+
+                // Left Earcup with cushion & metal cap
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = 1.dp, y = (size.value * 0.02f).dp)
+                        .size(width = (size.value * 0.16f).dp, height = (size.value * 0.34f).dp)
+                        .shadow(4.dp, RoundedCornerShape(50))
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFF002B66))
+                        .border(1.5.dp, Color(0xFF0057C2), RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = (size.value * 0.08f).dp, height = (size.value * 0.20f).dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFF80B3FF))
+                    )
+                }
+
+                // Right Earcup with cushion & metal cap
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = (-1).dp, y = (size.value * 0.02f).dp)
+                        .size(width = (size.value * 0.16f).dp, height = (size.value * 0.34f).dp)
+                        .shadow(4.dp, RoundedCornerShape(50))
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFF002B66))
+                        .border(1.5.dp, Color(0xFF0057C2), RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = (size.value * 0.08f).dp, height = (size.value * 0.20f).dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFF80B3FF))
+                    )
+                }
+            }
+        }
+
+        // Bowtie accessory placed dapperly at bottom center
+        AnimatedVisibility(
+            visible = accessory == NotaAccessory.BOWTIE,
+            enter = fadeIn(tween(220)) + scaleIn(initialScale = 0.8f),
+            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.8f),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = (size.value * 0.08f).dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .shadow(6.dp, RoundedCornerShape(8.dp), ambientColor = Color(0x33000000))
+            ) {
+                // Left Wing
+                Box(
+                    modifier = Modifier
+                        .size((size.value * 0.16f).dp, (size.value * 0.14f).dp)
+                        .rotate(-15f)
+                        .clip(RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp, topEnd = 2.dp, bottomEnd = 2.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFF003893), Color(0xFF0057C2))
+                            )
+                        )
+                )
+                // Center Knot
+                Box(
+                    modifier = Modifier
+                        .size((size.value * 0.10f).dp, (size.value * 0.11f).dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF001F54))
+                        .border(1.dp, Color(0xFF80B3FF).copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                )
+                // Right Wing
+                Box(
+                    modifier = Modifier
+                        .size((size.value * 0.16f).dp, (size.value * 0.14f).dp)
+                        .rotate(15f)
+                        .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFF0057C2), Color(0xFF003893))
+                            )
+                        )
+                )
+            }
+        }
+
+        // Anger symbol mark when furious
+        AnimatedVisibility(
+            visible = eyeState == NotaEyeState.FURIOUS,
+            enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.3f),
+            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.3f),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset(x = 6.dp, y = (-6).dp)
+                    .size((size.value * 0.36f).dp)
+                    .background(Color(0xFFBA1A1A), CircleShape)
+                    .border(1.5.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "💢",
+                    fontSize = (size.value * 0.22f).sp
+                )
             }
         }
 
         // Sparkle decoration (top-right) with smooth scale transition
         AnimatedVisibility(
-            visible = showSparkle,
+            visible = showSparkle && eyeState != NotaEyeState.FURIOUS,
             enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.4f, animationSpec = spring(Spring.DampingRatioMediumBouncy)),
             exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.4f),
             modifier = Modifier.align(Alignment.TopEnd)

@@ -5,10 +5,13 @@ import androidx.compose.ui.graphics.Color
 // ViNote Soft & Alive Color Palette
 val ViNotePrimary = Color(0xFF0057C2)
 val ViNotePrimaryContainer = Color(0xFF2C70E2)
+val ViNotePrimaryFixed = Color(0xFFD8E2FF)
+val ViNotePrimaryFixedDim = Color(0xFFAEC6FF)
 val ViNoteOnPrimary = Color(0xFFFFFFFF)
 val ViNoteOnPrimaryContainer = Color(0xFFFEFCFF)
 
 val ViNoteSecondary = Color(0xFF1360A4)
+val ViNoteSecondaryContainer = Color(0xFFD2E4FF)
 val ViNoteSecondaryFixed = Color(0xFFD2E4FF)
 val ViNoteSecondaryFixedDim = Color(0xFFA1C9FF)
 val ViNoteOnSecondaryFixed = Color(0xFF001C38)
