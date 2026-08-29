@@ -4,16 +4,43 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.example.data.local.ViNoteDatabase
 import com.example.domain.wallet.WalletNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
  * Native Android NotificationListenerService for automatic real-time E-Wallet and Banking detection.
- * Captures notifications from GoPay, OVO, DANA, BCA, Mandiri, etc. and pipes them to WalletTransactionProcessor.
+ * Captures notifications from GoPay, OVO, DANA, BCA, Mandiri, etc. and delegates to WalletDetectionCoordinator.
+ * Survives Activity lifecycle closure and reboots.
  */
 class WalletNotificationListenerService : NotificationListenerService() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var coordinatorInstance: WalletDetectionCoordinator? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureCoordinator()
+    }
+
+    private fun ensureCoordinator(): WalletDetectionCoordinator {
+        val existing = coordinator ?: coordinatorInstance
+        if (existing != null) return existing
+
+        val db = ViNoteDatabase.getDatabase(applicationContext)
+        val newCoordinator = WalletDetectionCoordinator(
+            transactionDao = db.transactionDao(),
+            detectionEventDao = db.detectionEventDao(),
+            walletAccountDao = db.walletAccountDao(),
+            syncQueueDao = db.syncQueueDao()
+        )
+        coordinatorInstance = newCoordinator
+        coordinator = newCoordinator
+        return newCoordinator
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
@@ -39,11 +66,10 @@ class WalletNotificationListenerService : NotificationListenerService() {
 
         Log.d("WalletNotifListener", "Captured notification from $packageName: $title - $text")
 
-        // Pass to global processor if active
-        val processor = globalProcessor
-        if (processor != null && isListenerActive) {
-            CoroutineScope(Dispatchers.IO).launch {
-                processor.processNotification(notificationObj)
+        if (isListenerActive) {
+            serviceScope.launch {
+                val coord = ensureCoordinator()
+                coord.processNotification(notificationObj, activeUserId)
             }
         }
     }
@@ -61,8 +87,10 @@ class WalletNotificationListenerService : NotificationListenerService() {
     }
 
     companion object {
-        var globalProcessor: WalletTransactionProcessor? = null
+        var coordinator: WalletDetectionCoordinator? = null
         var isListenerActive: Boolean = true
         var isServiceConnected: Boolean = false
+        var activeUserId: String = "user_default"
     }
 }
+

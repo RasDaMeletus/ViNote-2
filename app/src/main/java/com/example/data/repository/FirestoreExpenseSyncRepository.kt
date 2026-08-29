@@ -28,21 +28,29 @@ data class SyncResult(
 )
 
 class FirestoreExpenseSyncRepository(
-    customFirestore: FirebaseFirestore? = null
+    customFirestore: FirebaseFirestore? = null,
+    private val authUserIdProvider: (() -> String)? = null
 ) {
     companion object {
         private const val TAG = "FirestoreExpenseSync"
         private const val COLLECTION_EXPENSES = "expenses"
-        private const val USER_ID = "default_user"
+        private const val COLLECTION_WALLETS = "wallets"
+        private const val COLLECTION_BUDGETS = "budgets"
     }
 
     private val firestoreInstance: FirebaseFirestore? = customFirestore ?: runCatching {
         FirebaseFirestore.getInstance()
     }.getOrNull()
 
+    private fun getUserId(): String {
+        return authUserIdProvider?.invoke()
+            ?: runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+            ?: "usr_google_farras213"
+    }
+
     private fun getExpensesCollection() = firestoreInstance
         ?.collection("users")
-        ?.document(USER_ID)
+        ?.document(getUserId())
         ?.collection(COLLECTION_EXPENSES)
 
     /**

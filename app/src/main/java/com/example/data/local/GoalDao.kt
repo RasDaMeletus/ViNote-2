@@ -14,6 +14,12 @@ interface GoalDao {
     @Query("SELECT * FROM goals ORDER BY id ASC")
     fun getAllGoals(): Flow<List<GoalItem>>
 
+    @Query("SELECT * FROM goals WHERE userId = :userId ORDER BY id ASC")
+    fun getGoalsForUser(userId: String): Flow<List<GoalItem>>
+
+    @Query("SELECT * FROM goals WHERE id = :id AND userId = :userId LIMIT 1")
+    suspend fun getGoalById(id: Long, userId: String): GoalItem?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGoal(goal: GoalItem): Long
 
@@ -28,6 +34,9 @@ interface GoalDao {
 
     @Query("DELETE FROM goals WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM goals WHERE userId = :userId")
+    suspend fun clearUserGoals(userId: String)
 
     @Query("DELETE FROM goals")
     suspend fun clearAll()
