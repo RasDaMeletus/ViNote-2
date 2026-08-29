@@ -1,208 +1,343 @@
 # ViNote 2 — Production Product Requirements Document
 
-**Document status:** Implementation-ready PRD  
-**Target:** ViNote-2 Android application  
+**Status:** Implementation-ready  
+**Target:** ViNote-2 Android + ViNote backend  
 **Current state:** Functional prototype / partially wired production architecture  
-**Primary goal:** Turn the current prototype into a reliable, daily-use personal finance companion.
+**Primary goal:** Turn ViNote-2 into a reliable daily-use personal finance companion.
 
 ---
 
-## 1. Executive Summary
+## 1. Product Vision
 
-ViNote is an AI-powered personal finance companion for students and young users. It should reduce the friction of tracking money by automatically detecting financial activity, maintaining an accurate balance, explaining spending behavior, and proactively helping the user make better decisions.
+ViNote is an AI-powered personal finance companion for students and young users. The core promise is:
 
-The current ViNote-2 repository already contains the foundations of this product: Jetpack Compose screens, a ViewModel, Room/local data, Firestore synchronization, OpenRouter integration, offline NLP infrastructure, goals, transaction management, and Android `NotificationListenerService` wallet detection. The repository is therefore **not a greenfield rebuild**. The implementation should evolve the existing architecture into a production system instead of replacing working modules without reason.
+> **The user spends money normally; ViNote detects it, records it once, updates the correct financial state, and helps the user understand their money.**
 
-The most important product transformation is:
+The existing repository already contains Jetpack Compose UI, ViewModel/domain/data layers, Room/local persistence, Firestore synchronization, OpenRouter integration, offline NLP, goals, transactions, DANA/GoPay adapters, and Android `NotificationListenerService`. Do not rebuild from scratch; harden and connect the existing foundations.
 
-> **From: a finance UI that can record transactions.  
-> To: a finance companion that continuously understands the user's money with minimal manual input.**
+## 2. Production Gaps
 
----
+- Replace UI-only startup/auth state with persistent authenticated state.
+- Replace mutable global wallet processor state with lifecycle-safe dependency injection/application scope.
+- Harden notification parsing, confidence, fingerprints, and deduplication.
+- Prevent balance double-counting.
+- Make Room the immediate local source of truth and cloud synchronization eventually consistent.
+- Make every cloud API strictly user-scoped.
+- Use **Auth.js / NextAuth as the official authentication authority**.
+- Keep OAuth, database, and AI provider secrets on the backend only.
+- Make AI optional and never authoritative for financial arithmetic.
+- Complete offline, loading, empty, error, permission, recovery, and sync states.
+- Add financial, authentication, synchronization, and real-device tests.
 
-## 2. Product Vision
+## 3. Product Goals
 
-ViNote should feel like a small financial companion living on the user's phone.
+### P0
+- Automatic DANA/GoPay transaction detection while Activity is closed.
+- Exact, idempotent ledger and wallet accounting.
+- Real Room-backed transaction history.
+- Auth.js/NextAuth-backed identity and authenticated backend API.
+- User-scoped cloud synchronization.
+- Reliable Home, Activity, E-Wallet, and authentication flows.
+- Offline-first core finance functionality.
+- Review/edit/delete for detected transactions.
 
-It should:
+### P1
+- Grounded NoTa AI.
+- Receipt and voice transaction drafts.
+- Goals and budgets.
+- Cross-device recovery.
+- Production diagnostics.
 
-1. Know the user's current tracked money.
-2. Automatically recognize incoming and outgoing transactions from supported wallet/banking notifications.
-3. Deduplicate and validate events before recording them.
-4. Keep balances and transaction history consistent.
-5. Let the user correct mistakes easily.
-6. Use AI for understanding, categorization, explanations, and conversational assistance — not as the sole source of truth for financial arithmetic.
-7. Work gracefully when offline.
-8. Protect financial data and minimize unnecessary data transmission.
-9. Make financial literacy actionable rather than presenting only charts.
+### P2
+- More providers.
+- Merchant/category learning.
+- Advanced personalization and offline AI.
 
----
+## 4. Non-Goals
 
-## 3. Current Repository Assessment
-
-The repository is already structured around separate UI, ViewModel, domain, data, AI, and service layers. The main navigation currently exposes Home, Activity, NoTa, Goals, and Me, with additional flows for authentication, setup, transactions, receipt scanning, voice input, e-wallets, settings, profile, and bank integrations.
-
-The Android manifest already registers a native `NotificationListenerService`, and the wallet pipeline currently follows the intended high-level flow: notification capture → wallet adapter detection → deterministic parsing → deduplication → transaction insertion, with an AI fallback when deterministic parsing cannot extract a valid amount.
-
-The repository also contains DANA and GoPay adapters, local Room DAOs/database models, Firestore synchronization, an OpenRouter client, and an offline NLP engine.
-
-### Production gaps to resolve
-
-- App startup/navigation state is currently UI-driven and should become persistent/auth-aware.
-- Notification processing must be lifecycle-safe and recoverable rather than depending on mutable global state.
-- Wallet detection needs robust package identification, parsing confidence, transaction identity, and user correction flows.
-- Balance handling must distinguish **calculated balance** from **provider-reported balance** and prevent double deduction.
-- AI calls must be resilient, structured, observable, and never allowed to corrupt financial state.
-- Offline/online behavior needs explicit policy and UI.
-- Data synchronization needs deterministic conflict rules and idempotency.
-- Production error states, loading states, empty states, permissions, and recovery flows need to be complete.
-- Security/secrets handling must be production-ready; API credentials must never be hard-coded or exposed in the APK.
-- Automated tests are required for financial parsing, transaction accounting, persistence, and critical UI flows.
+ViNote is not a bank, payment processor, money-moving wallet, credential scraper, or AI-only ledger. It only observes permitted notification data and records user-authorized financial information.
 
 ---
 
-## 4. Goals
+## 5. Core UX
 
-### P0 goals
+### First launch
 
-- Automatic transaction detection works reliably while the app is not open.
-- Supported e-wallet notifications can create transactions without manual entry.
-- Incoming top-ups/income and outgoing spending update the correct wallet balance exactly once.
-- Transactions survive app restarts.
-- Duplicate notifications do not create duplicate transactions.
-- User can review, edit, confirm, or delete detected transactions.
-- Home dashboard reflects the same source of truth as Activity and wallet balances.
-- Authentication and user-specific cloud data work correctly.
-- Offline mode remains usable for core finance tracking.
-- AI assistant can answer questions using the user's actual stored financial data.
+1. Onboarding/value proposition.
+2. Sign in/create account.
+3. Establish authenticated backend session.
+4. Quick setup: currency, starting balance, wallets, budget, goals.
+5. Explain notification-based automatic detection.
+6. Request notification-listener permission contextually.
+7. Enable supported apps individually.
+8. Verify setup and enter Home.
 
-### P1 goals
+### Daily loop
 
-- Receipt scanning creates an editable transaction draft.
-- Voice input creates an editable transaction draft.
-- Goals and budgets are integrated with transaction activity.
-- NoTa provides proactive but non-spammy financial insights.
-- Cloud sync works across reinstall/device changes.
-- Production observability and diagnostics are available.
-
-### P2 goals
-
-- Expand wallet/bank adapters.
-- Smarter merchant/category learning.
-- Advanced financial insights and personalized recommendations.
-- Optional richer offline AI capabilities when technically practical.
-
----
-
-## 5. Non-Goals
-
-Do not turn ViNote into:
-
-- A bank or payment processor.
-- A wallet that actually moves user money.
-- A replacement for official banking/e-wallet applications.
-- A system that requires accessibility abuse or credential scraping.
-- An AI-only financial ledger where the model determines balances.
-- A social network or gamified finance platform before core reliability is complete.
-
-ViNote only **observes permitted notification data and records user-authorized financial information**.
-
----
-
-## 6. Core User Experience
-
-### 6.1 First launch
-
-1. Launch ViNote.
-2. Show concise value proposition.
-3. Create account / sign in.
-4. Complete financial setup:
-   - preferred currency (default IDR)
-   - starting cash balance, if applicable
-   - optional wallets/accounts
-   - monthly budget
-   - financial goals
-5. Explain automatic detection clearly.
-6. Ask for notification-listener permission only after explaining why it is needed.
-7. Let the user enable supported apps individually.
-8. Run a short setup verification.
-9. Enter Home.
-
-Never imply that ViNote can read private banking data directly. Explain that detection uses notifications from selected apps.
-
-### 6.2 Daily experience
-
-The ideal daily loop is:
-
-`User spends money → wallet/bank posts notification → ViNote detects → parses → validates → records → updates balance → optionally notifies user → Home/Activity updates.`
+`Spend → provider notification → ViNote detects → parses → validates → fingerprints → deduplicates → records → updates ledger → queues sync → optional ViNote notification`
 
 The user should not need to open ViNote for every transaction.
 
-### 6.3 Manual transaction
+### Detection confidence
 
-Manual entry remains available as a fallback:
-
-- amount
-- income/expense
-- category
-- merchant/title
-- wallet/account
-- date/time
-- note
-- optional receipt
-
-Save should be immediate locally, then synchronize in the background.
-
-### 6.4 Detected transaction review
-
-If confidence is high and the notification is unambiguous, auto-record it.
-
-If confidence is medium/ambiguous:
-
-- create a pending transaction
-- show a compact confirmation notification/in-app card
-- allow Confirm / Edit / Ignore
-
-If confidence is low:
-
-- do not modify financial state
-- show a reviewable detection event when appropriate
+- **High:** auto-record.
+- **Medium:** pending transaction + confirmation.
+- **Low:** no financial-state mutation; optionally keep a reviewable detection event.
 
 ---
 
-## 7. Information Architecture
+# 6. Authentication Architecture — Auth.js / NextAuth
 
-### Bottom navigation
+**Auth.js (NextAuth) is the official authentication architecture for ViNote 2.**
 
-1. **Home** — current financial state and important actions.
-2. **Activity** — transaction history, filtering, search, details.
-3. **NoTa** — AI financial companion.
-4. **Goals** — savings/financial goals and progress.
-5. **Me** — profile, wallets, integrations, preferences, privacy, settings.
+The Android application is an authenticated client of a ViNote Next.js backend. Android must not implement a competing authentication system.
 
-### Home priorities
+### Target architecture
 
-The Home screen should answer within seconds:
+```text
+ViNote Android
+      │ HTTPS / authenticated API
+      ▼
+ViNote Next.js Backend
+      │
+      ├── Auth.js / NextAuth
+      │     ├── Google OAuth initially
+      │     ├── Session management
+      │     ├── Account linking
+      │     └── Canonical user identity
+      │
+      ├── API routes / domain services
+      │
+      └── Database access
+             │
+             ▼
+       PostgreSQL / Supabase
+```
 
-- How much money do I have?
-- How much did I spend recently?
-- Am I within budget?
-- What changed today?
-- Is there anything I need to review?
+### Auth.js responsibilities
 
-Avoid filling the first screen with decorative charts. Information hierarchy must favor actionable financial state.
+Auth.js/NextAuth owns:
+
+- authentication;
+- supported OAuth providers;
+- Google OAuth initially;
+- session lifecycle;
+- account/provider linking;
+- authentication callbacks;
+- identity resolution.
+
+The design must allow additional providers later.
+
+### Android responsibilities
+
+Android must:
+
+- launch the supported authentication flow;
+- securely maintain only the credential/session information required to call the backend;
+- restore a valid session on startup;
+- handle expiry/revocation;
+- sign out and clear authenticated in-memory state;
+- never contain OAuth client secrets, provider secrets, database credentials, or server-side API keys.
+
+### Canonical identity
+
+The authenticated server-side user ID is canonical. Never trust a client-supplied `userId` for authorization.
+
+All user-owned resources must resolve through the authenticated identity:
+
+```text
+User
+ ├── WalletAccount
+ │     └── Transaction
+ ├── DetectionEvent
+ ├── Goal
+ ├── Budget
+ ├── AppIntegration
+ └── AiConversation
+```
+
+### Logout/account switching
+
+On logout:
+
+- end/invalidate the backend session according to the Auth.js session strategy;
+- clear authenticated in-memory state;
+- stop user-specific background processing where required;
+- prevent cached data from the previous account being displayed;
+- never mix local data between accounts.
+
+### Authentication DoD
+
+- [ ] Auth.js/NextAuth is the only official authentication authority.
+- [ ] Google authentication works.
+- [ ] Session restoration works.
+- [ ] Expired/revoked sessions are handled gracefully.
+- [ ] Every private API request is authorized against the authenticated user.
+- [ ] User A cannot access User B's data.
+- [ ] Logout/account switching is isolated and safe.
+- [ ] No server secret is packaged in the APK.
 
 ---
 
-## 8. Wallet & Banking Automation — P0
+# 7. Backend Architecture
 
-This is the defining production feature.
+Use a dedicated Next.js backend/service layer for authentication, authorization, cloud persistence, synchronization, and controlled AI access.
 
-### 8.1 Supported source architecture
+### Request flow
 
-Use an adapter interface so each financial app has isolated parsing rules.
+```text
+Android
+  ↓
+Authenticated HTTPS request
+  ↓
+Next.js API
+  ↓
+Auth.js session/token validation
+  ↓
+Resolve canonical user ID
+  ↓
+Authorization / ownership check
+  ↓
+Domain service
+  ↓
+PostgreSQL / Supabase
+```
 
-Conceptual interface:
+### Backend owns
+
+- authentication/session validation;
+- authorization;
+- user/profile operations;
+- transaction/wallet/goal/budget sync;
+- cloud persistence;
+- NoTa AI gateway/proxy;
+- server-side secrets;
+- synchronization and idempotency.
+
+### API principles
+
+- HTTPS only.
+- Private endpoints require authentication.
+- Authorization is server-side and user-scoped.
+- Validate all request bodies with schemas.
+- Never accept arbitrary client `userId` as proof of ownership.
+- Use stable error codes.
+- Use idempotency keys for financial sync operations.
+- Do not expose database internals.
+- Rate-limit expensive/sensitive endpoints.
+
+### Conceptual API
+
+```text
+POST   /api/auth/*
+GET    /api/me
+PATCH  /api/me
+
+GET    /api/wallets
+POST   /api/wallets
+PATCH  /api/wallets/:id
+DELETE /api/wallets/:id
+
+GET    /api/transactions
+POST   /api/transactions
+PATCH  /api/transactions/:id
+DELETE /api/transactions/:id
+POST   /api/transactions/sync
+
+GET    /api/goals
+POST   /api/goals
+PATCH  /api/goals/:id
+
+GET    /api/budgets
+POST   /api/budgets
+PATCH  /api/budgets/:id
+
+POST   /api/ai/chat
+POST   /api/ai/transaction-draft
+
+GET    /api/sync/status
+POST   /api/sync/push
+POST   /api/sync/pull
+```
+
+The exact routing convention can change, but authentication, authorization, domain logic, and persistence must remain separated.
+
+---
+
+# 8. Database & Synchronization Architecture
+
+### Android local database
+
+Room is the immediate source of truth for UI and offline finance operations.
+
+Required concepts:
+
+```text
+UserSession
+WalletAccount
+Transaction
+DetectionEvent
+Goal
+Budget
+Category
+AppIntegration
+AiConversation
+AiMessage
+SyncMetadata
+```
+
+### Cloud database
+
+Use PostgreSQL/Supabase as backend persistence where practical. Auth.js/NextAuth identity must map to the canonical application user record.
+
+Rules:
+
+- Every user-owned resource must be owned/scoped by the authenticated server identity.
+- Use exact money representation, never floating-point money.
+- Use migrations, never destructive production resets.
+- Use stable IDs and timestamps/versions for synchronization.
+- Use tombstones/soft deletes where required.
+- Minimize raw notification retention.
+
+### Local-first sync
+
+```text
+Room change
+   ↓
+Sync queue
+   ↓
+Authenticated API
+   ↓
+Auth.js identity + authorization
+   ↓
+PostgreSQL/Supabase
+   ↓
+Pull changes
+   ↓
+Room
+```
+
+States:
+
+`LOCAL_ONLY → SYNCING → SYNCED`
+
+Failure:
+
+`SYNC_ERROR`
+
+Cloud failure must never block local finance actions.
+
+### Conflict policy
+
+Financial conflicts must not be silently overwritten. Use stable entity IDs, versions/timestamps, deterministic conflict rules, and explicit reconciliation for exceptional financial conflicts.
+
+---
+
+# 9. Automatic E-Wallet / Banking Detection — P0
+
+This is ViNote's defining production feature.
+
+### Adapter architecture
 
 ```text
 WalletAdapter
@@ -214,222 +349,142 @@ WalletAdapter
 - parserVersion
 ```
 
-Existing DANA and GoPay adapters should be hardened rather than discarded. New adapters should be added without modifying the notification service itself.
+Reuse and harden the existing DANA and GoPay adapters.
 
-### 8.2 Notification listener
+### Notification listener
 
-The Android `NotificationListenerService` must:
+`WalletNotificationListenerService` must:
 
-- capture only relevant notifications
-- ignore notifications from unrelated apps
-- avoid logging sensitive notification content in production
-- process work off the main thread
-- remain resilient after process death/restart
-- expose service status to the UI
-- handle listener disconnect/reconnect
-- avoid relying on process-global mutable processor state as the long-term architecture
+- capture only relevant notifications;
+- process off the main thread;
+- avoid sensitive production logs;
+- survive Activity closure;
+- recover after process death/restart;
+- handle listener reconnect/disconnect;
+- expose listener health;
+- delegate to an application-scoped injected coordinator;
+- not depend on mutable process-global processor state.
 
-### 8.3 App selection
-
-E-wallet settings should show detected/supported apps with:
-
-- app name/icon
-- supported status
-- enabled/disabled toggle
-- listener permission status
-- last detected event
-- parser health/version
-
-The user should **not** paste notification text manually.
-
-### 8.4 Parsing pipeline
+### Pipeline
 
 ```text
 Notification
-    ↓
-Normalize payload
-    ↓
-Identify financial app
-    ↓
+ ↓
+Normalize
+ ↓
+Identify provider
+ ↓
 Adapter parser
-    ↓
+ ↓
 Validate amount/type/currency/time
-    ↓
-Create stable event fingerprint
-    ↓
+ ↓
+Generate stable fingerprint
+ ↓
 Deduplicate
-    ↓
-Determine confidence
-    ↓
-[High confidence] Auto-record
-[Medium confidence] Pending confirmation
-[Low confidence] Ignore / review
-    ↓
-Persist transaction atomically
-    ↓
-Update wallet/account ledger
-    ↓
-Sync cloud
-    ↓
-Optional user notification
+ ↓
+Calculate confidence
+ ↓
+High → auto-record
+Medium → pending confirmation
+Low → ignore/review
+ ↓
+Atomic local persistence
+ ↓
+Update ledger/account state
+ ↓
+Queue cloud sync
+ ↓
+Optional ViNote notification
 ```
 
-### 8.5 Transaction fingerprint
+### Fingerprinting
 
-Do not use only Android notification ID.
+Do not rely only on Android notification ID. Prefer source package, normalized type, amount, timestamp bucket, merchant/reference, and provider transaction ID when available. Enforce uniqueness in the database where practical.
 
-Fingerprint should be derived from stable normalized fields such as:
+### Balance model
 
-- source package
-- normalized transaction type
-- amount
-- timestamp bucket
-- normalized merchant/reference text
-- provider transaction/reference ID when available
+Support two explicit modes:
 
-Store the fingerprint with a unique database constraint where practical.
+**Ledger-derived:** `openingBalance + Σ income - Σ expense ± adjustments`
 
-### 8.6 Balance rules
+**Provider-reported:** current balance explicitly reported by the financial provider.
 
-ViNote must never blindly subtract an expense from a balance if the balance was already updated from a provider-reported balance.
+Never subtract an expense twice when a provider-reported balance already reflects it. When both are available, store both and show reconciliation status.
 
-Use one of these explicit accounting modes per wallet:
+### Wallet reconciliation
 
-**Mode A — Ledger-derived balance**
+Show:
 
-`balance = openingBalance + Σ income - Σ expense`
-
-**Mode B — Provider-reported balance**
-
-Provider notification supplies a trustworthy current balance. Store that value as `providerBalance` and track transactions separately.
-
-If both are available, display reconciliation status rather than silently applying both.
-
-Every balance-changing event must be idempotent.
-
-### 8.7 Reconciliation
-
-Provide a wallet detail screen with:
-
-- ViNote calculated balance
-- provider-reported balance when available
-- difference
-- last sync/detection time
-- Reconcile / Set as actual balance action
-
-This prevents silent accounting drift.
+- ViNote calculated balance;
+- provider-reported balance when available;
+- difference;
+- last detection/sync;
+- reconcile/set actual balance action.
 
 ---
 
-## 9. Transaction System
+# 10. Transaction Ledger
 
-Transactions are the canonical financial events in ViNote.
+Required fields:
 
-### Required fields
+- stable internal ID;
+- authenticated user ownership;
+- exact amount;
+- currency;
+- type: income / expense / transfer / adjustment;
+- category;
+- title;
+- merchant;
+- wallet/account ID;
+- source;
+- source event ID/fingerprint;
+- timestamp;
+- created/updated timestamps;
+- sync state;
+- confidence where applicable;
+- confirmation state.
 
-- immutable internal ID
-- user ID
-- amount in smallest currency unit / safe numeric representation
-- currency
-- type: income / expense / transfer / adjustment
-- category
-- title
-- merchant
-- wallet/account ID
-- source: manual / e-wallet / bank / receipt / voice / AI
-- source event ID/fingerprint
-- timestamp
-- created timestamp
-- updated timestamp
-- sync state
-- confidence, if automatically detected
-- confirmation state
-- optional raw-source metadata, minimized and privacy-safe
+Rules:
 
-### Important accounting rules
-
-- Money values must not use floating-point arithmetic.
-- Deleting/editing a transaction must update all dependent aggregates consistently.
-- Transfers between tracked wallets must not be counted as spending.
-- An imported/detected transaction must be safe to process more than once.
-- Historical transactions must remain stable if parser rules change.
+- No floating-point money arithmetic.
+- Edits/deletes update aggregates consistently.
+- Transfers are not spending.
+- Imported events are idempotent.
+- Historical transactions remain stable when parser versions change.
 
 ---
 
-## 10. Activity Screen
+# 11. Home & Activity
 
-Activity must be a real ledger, not a visual mock.
+Home must answer quickly:
 
-Features:
+- current money;
+- recent spending;
+- budget status;
+- recent changes;
+- pending detections.
 
-- chronological transaction list
-- date grouping
-- income/expense indicators
-- wallet/source indicator
-- category
-- search
-- filters by date, wallet, category, type, source
-- transaction detail sheet
-- edit
-- delete with confirmation
-- undo after deletion
-- pending detection section
-- empty state
-- loading state
-- error/retry state
+Use real repository data only. No fake/mock financial values in production.
 
-A transaction detail view must clearly show whether it was manually entered or automatically detected.
+Activity must provide chronological history, search/filter, wallet/source indicators, detail, edit/delete, pending detections, and loading/empty/error states.
 
 ---
 
-## 11. Home Dashboard
+# 12. NoTa AI
 
-### Required components
+NoTa is the conversational layer, not the ledger.
 
-1. Current tracked balance.
-2. Wallet/account breakdown.
-3. Today/this-week spending.
-4. Monthly budget progress.
-5. Recent transactions.
-6. Pending detections.
-7. Goal progress snapshot.
-8. One useful NoTa insight.
-9. Quick actions:
-   - Add transaction
-   - Scan receipt
-   - Voice entry
-   - Ask NoTa
+Capabilities:
 
-### Dashboard principles
+- explain spending;
+- summarize activity;
+- answer budget questions;
+- identify patterns;
+- suggest practical actions;
+- create transaction/goal drafts;
+- explain financial concepts.
 
-- Never show stale values without indicating sync status.
-- Use the same repository/source of truth as Activity.
-- Loading should be skeleton/placeholder, not fake data.
-- Errors should be recoverable.
-
----
-
-## 12. NoTa AI Assistant
-
-NoTa is the conversational layer of ViNote, not the ledger itself.
-
-### Capabilities
-
-- explain spending
-- summarize recent activity
-- answer budget questions
-- identify unusual spending patterns
-- suggest practical savings actions
-- create transaction drafts from natural language
-- create goal drafts
-- answer questions about recorded transactions
-- explain financial concepts in simple language
-
-### Tool-based architecture
-
-The AI should access controlled application tools rather than receiving an unrestricted database dump.
-
-Example tools:
+### Controlled tools
 
 ```text
 get_current_balance()
@@ -441,691 +496,347 @@ create_transaction_draft(...)
 create_goal_draft(...)
 ```
 
-AI responses should be grounded in tool results.
+Rules:
 
-### AI safety/product rules
-
-- AI must never invent a transaction or balance.
-- AI must not directly mutate financial records without an explicit user-confirmation flow for consequential changes.
-- Arithmetic must be performed deterministically by application code.
-- Structured extraction should use validated JSON/schema where supported.
-- If AI is unavailable, the app must continue core finance functionality.
+- never invent balances/transactions;
+- never own authoritative financial arithmetic;
+- never directly mutate consequential financial records without confirmation;
+- validate structured outputs;
+- continue core finance functionality if AI is unavailable.
 
 ### OpenRouter
 
-Keep OpenRouter behind an interface such as `AiGateway`/`ViNoteAiService` so the provider can be replaced later.
+Keep OpenRouter behind `AiGateway`/`ViNoteAiService`. Production requests should use server-side credentials where appropriate. Add cancellation, timeouts, retry/backoff, structured validation, configurable model, and privacy-safe diagnostics.
 
-The existing OpenRouter client should be hardened with:
-
-- secure credential injection
-- request cancellation
-- retry/backoff for transient errors
-- timeout handling
-- structured response parsing
-- model configuration
-- usage/error telemetry without financial-content leakage
+The Android APK must never contain a shared production OpenRouter API key.
 
 ---
 
-## 13. Offline / Online Hybrid
+# 13. Offline / Online Hybrid
 
-Core finance tracking must work offline.
+### Offline
 
-### Offline-capable
+- view/add/edit/delete transactions;
+- calculate balances;
+- manage goals/budgets;
+- deterministic wallet parsing;
+- queue synchronization;
+- supported local NoTa functionality.
 
-- view transactions
-- add/edit/delete local transactions
-- calculate balances
-- manage goals/budgets
-- local deterministic wallet parsing
-- queue cloud sync
-- basic NoTa intent/extraction where the offline engine supports it
+### Online
 
-### Online-enhanced
+- Auth.js-backed session operations;
+- cloud synchronization;
+- OpenRouter AI;
+- advanced insights;
+- optional model updates.
 
-- OpenRouter AI
-- cloud synchronization
-- advanced AI insights
-- optional model downloads/updates
-
-### Sync states
-
-Every syncable entity should have a clear state:
-
-`LOCAL_ONLY → SYNCING → SYNCED`
-
-and failure state:
-
-`SYNC_ERROR`
-
-Retry automatically with backoff, but never block local finance actions because cloud sync failed.
+Offline finance operations must continue without network access.
 
 ---
 
-## 14. Authentication & User Data
+# 14. Goals, Budgets, Receipt & Voice
 
-Authentication must be a real application flow, not a prototype screen.
+Goals support target, deadline, wallet, contributions, progress, and archive/edit.
 
-Requirements:
+Budgets support monthly/category limits, progress, remaining amount, warnings, and deterministic reset periods.
 
-- sign up
-- sign in
-- sign out
-- session restoration
-- password/account recovery where supported by backend
-- user-specific local/cloud data
-- first-time setup state
-- secure session handling
+Receipt flow:
 
-On logout:
+`Camera → OCR → candidates → validation → editable draft → confirmation → transaction`
 
-- stop user-specific background processing where required
-- clear sensitive in-memory state
-- do not accidentally expose the previous user's transactions after account switch
+Voice flow:
+
+`Speech → text → extraction → editable draft → confirmation → transaction`
+
+Uncertain values must never be silently finalized.
 
 ---
 
-## 15. Cloud Synchronization
+# 15. UX, Mascot, Notifications & Permissions
 
-Use cloud storage for backup/synchronization, not as the only local data source.
+NoTa remains friendly, concise, supportive, and minimally animated.
 
-The repository currently contains Firestore synchronization infrastructure. Production implementation must define:
+Brand palette:
 
-- canonical user ID
-- document/entity IDs
-- created/updated timestamps
-- conflict policy
-- deletion/tombstone policy
-- retry behavior
-- offline queue
-- migration/versioning
+- Primary Blue `#4F8CFF`
+- Secondary Blue `#7AB6FF`
+- Mint `#5CE1C6`
+- White `#FFFFFF`
+- Soft Pink `#FFD6E5`
 
-Recommended rule:
+Use meaningful mascot states for transaction detection, budget warnings, goals, setup, and sync health.
 
-> Local Room is the immediate source of truth for the UI; cloud sync is eventually consistent backup/synchronization.
+ViNote output notifications should cover recorded transactions, pending reviews, budget warnings, and goal progress. They must be configurable and non-spammy.
 
-For conflicting edits, use deterministic version/timestamp rules plus explicit handling for financial records rather than silently overwriting newer data.
+Request notification-listener, POST_NOTIFICATIONS, camera, and microphone permissions contextually. Each permission flow needs a recovery path through Settings.
 
 ---
 
-## 16. Goals & Budgets
+# 16. Security & Privacy
 
-### Goals
+Mandatory:
 
-Users can:
+- no production API keys committed;
+- no OAuth/backend secrets in Android;
+- no raw financial notification logging in production;
+- secure session/credential storage;
+- server-side user ownership enforcement;
+- schema validation;
+- privacy-safe diagnostics;
+- minimized notification retention;
+- minimized raw financial data sent to AI;
+- HTTPS only.
 
-- create a goal
-- set target amount
-- set deadline
-- assign optional wallet/account
-- add contributions
-- view progress
-- edit/archive goal
+Auth.js/NextAuth secrets exist only in the trusted backend environment.
 
-### Budgets
-
-Support:
-
-- monthly overall budget
-- category budgets
-- spending progress
-- exceeded warning
-- remaining amount
-- budget reset period
-
-Budget calculations must use the transaction ledger and deterministic date boundaries.
-
-NoTa can explain budget status, but budget arithmetic is application-owned.
+Prefer server-side AI proxying for shared provider credentials so Android cannot extract them.
 
 ---
 
-## 17. Receipt Scanning
+# 17. Architecture Rules
 
-Receipt flow should create a **draft**, never immediately finalize uncertain financial data.
-
-Pipeline:
-
-`Camera → OCR/extraction → amount/merchant/date/category candidates → validation → editable draft → user confirmation → transaction`
-
-Handle:
-
-- no camera permission
-- blurry receipt
-- unsupported receipt
-- multiple totals
-- tax/service charge
-- extraction failure
-
-Never fabricate missing values.
-
----
-
-## 18. Voice Input
-
-Voice input should follow the same transaction-draft architecture as receipt scanning.
-
-Example intent:
-
-> “I spent twenty thousand for lunch.”
-
-Pipeline:
-
-`Speech → text → deterministic/AI extraction → draft → user confirmation → transaction`
-
-The final ledger must only receive validated values.
-
----
-
-## 19. NoTa Personality & Mascot
-
-NoTa should feel friendly, supportive, and concise.
-
-Visual identity should remain consistent with the ViNote mascot system:
-
-- primary blue: `#4F8CFF`
-- secondary blue: `#7AB6FF`
-- accent mint: `#5CE1C6`
-- white belly: `#FFFFFF`
-- soft pink blush: `#FFD6E5`
-
-NoTa should react contextually:
-
-- successful transaction detection
-- spending milestone
-- budget warning
-- goal progress
-- setup completion
-- sync state
-
-Do not over-animate. Mascot interactions should improve feedback rather than distract from financial information.
-
----
-
-## 20. Notifications
-
-ViNote has two distinct notification categories:
-
-### A. Input notifications
-
-Financial notifications from other apps are consumed by the notification listener and parsed locally.
-
-### B. ViNote output notifications
-
-Examples:
-
-- “Recorded: Rp25.000 at [merchant].”
-- “You have 2 transactions to review.”
-- “Your monthly budget is almost reached.”
-- “Your goal is 65% complete.”
-
-Output notifications must be configurable and non-spammy.
-
-Never include sensitive financial information in notification text when device privacy settings make that inappropriate; provide a privacy option for notification detail level.
-
----
-
-## 21. Permissions
-
-Request permissions contextually, not all at once.
-
-Potential permissions include:
-
-- notification access for automatic wallet detection
-- POST_NOTIFICATIONS for ViNote alerts
-- camera for receipt scanning
-- microphone/audio for voice input
-
-Each permission screen must explain:
-
-- why ViNote needs it
-- what feature it enables
-- what happens if it is denied
-- how to enable it later in Settings
-
----
-
-## 22. Settings / Me
-
-### Required sections
-
-**Profile**
-- name
-- account
-- sign out
-
-**Money**
-- currency
-- starting balance/settings
-- budget
-
-**Wallets & Integrations**
-- e-wallets
-- banks
-- listener permission status
-- connection health
-
-**NoTa**
-- AI provider/model configuration where appropriate
-- response preferences
-- privacy controls
-
-**Notifications**
-- transaction alerts
-- budget alerts
-- goal alerts
-- notification detail/privacy
-
-**Data**
-- sync status
-- export data
-- delete local data
-- account/data deletion flow if supported
-
-**About**
-- app version
-- privacy policy
-- terms
-- diagnostics
-
----
-
-## 23. Data Model Direction
-
-At minimum, production storage should conceptually contain:
+### Android
 
 ```text
-User
-WalletAccount
-Transaction
-TransactionEvent / DetectionEvent
-Goal
-Budget
-Category
-AiConversation
-AiMessage
-SyncMetadata
-AppIntegration
-```
-
-Important relationships:
-
-```text
-User
- ├── WalletAccount
- │     └── Transaction
- ├── Transaction
- ├── Goal
- ├── Budget
- └── AppIntegration
-
-DetectionEvent
- └── may produce Transaction
-```
-
-Do not store raw notification text indefinitely unless there is a clear product reason. Prefer normalized/minimized metadata and configurable retention.
-
----
-
-## 24. Architecture Requirements
-
-Preserve and strengthen the current separation:
-
-```text
-UI / Compose
-    ↓
+Compose UI
+   ↓
 ViewModel
-    ↓
+   ↓
 Domain / Use Cases
-    ↓
-Repository interfaces
-    ↓
-Room / Firestore / Network / Android services
+   ↓
+Repository Interfaces
+   ↓
+Room / Network / Android Services
 ```
 
-### Rules
-
-- UI must not directly manipulate Room/Firestore.
-- Android services must call domain/application logic through an injected coordinator.
-- Financial calculations must be deterministic.
-- AI must be an optional capability behind interfaces.
-- Repository methods should expose `Flow`/observable state where appropriate.
-- Background work should use lifecycle-safe Android mechanisms.
-- Avoid singleton/global mutable state for user-specific financial processing.
-
----
-
-## 25. Background Processing
-
-Automatic wallet detection must work when the main Activity is not open.
-
-Requirements:
-
-- NotificationListenerService receives events.
-- Processing is delegated to an application-scoped, dependency-injected coordinator/repository.
-- Work is persisted quickly so process death does not lose events.
-- Long-running/retryable work should use WorkManager where appropriate.
-- Processing must be idempotent.
-- Battery impact must be minimized.
-
-The service must not require the user to keep the app open.
-
----
-
-## 26. Error Handling
-
-Every production flow needs explicit states:
+### Backend
 
 ```text
-Idle
-Loading
-Success
-Empty
-Recoverable error
-Permission required
-Offline
-Sync error
+Android API Client
+   ↓
+Next.js API
+   ↓
+Auth.js / NextAuth
+   ↓
+Authorization
+   ↓
+Domain Services
+   ↓
+PostgreSQL / Supabase
 ```
 
-Examples:
+Rules:
 
-- OpenRouter unavailable → continue without AI.
-- Cloud unavailable → keep local transaction and queue sync.
-- Wallet parser fails → create detection error/pending review, never corrupt balance.
-- Notification permission disabled → explain how to re-enable.
-- Camera unavailable → manual transaction remains available.
-
-Avoid generic “Something went wrong” without a recovery action.
-
----
-
-## 27. Security & Privacy
-
-Financial data is sensitive.
-
-Requirements:
-
-- never commit API keys
-- never log raw financial notification content in production
-- minimize notification storage
-- use secure local storage for secrets/tokens
-- enforce user ownership in cloud rules
-- validate all cloud reads/writes against authenticated user identity
-- avoid sending raw notification data to AI unless necessary
-- redact sensitive values from diagnostics
-- provide clear privacy explanation for notification access
-
-The OpenRouter API key must not be hard-coded into source or packaged as a publicly recoverable application secret. Prefer a controlled backend/proxy for production if the architecture requires a shared provider credential.
+- UI never directly manipulates persistence/network.
+- Android services use injected application/domain coordinators.
+- Financial calculations are deterministic.
+- AI is behind interfaces.
+- Avoid user-specific global mutable state.
+- Background work uses lifecycle-safe mechanisms.
+- Network synchronization is idempotent.
 
 ---
 
-## 28. Performance Requirements
+# 18. Testing Strategy
 
-Target behavior:
+### Unit
 
-- Home renders useful local data immediately when cached.
-- Notification-to-local-record processing should normally complete within a few seconds.
-- UI must remain responsive during parsing, sync, OCR, and AI requests.
-- AI/network work must never block the main thread.
-- Large transaction histories must be paginated/lazy-loaded.
-- Avoid unnecessary recomposition and repeated database queries.
-- Background detection must have minimal battery impact.
+DANA/GoPay parsing, provider identification, amount extraction, classification, fingerprinting, deduplication, balance/budget/goal calculations, AI structured parsing, and authentication/session state.
 
----
+### Integration
 
-## 29. Accessibility & UX Quality
+Notification → adapter → ledger; duplicate notification → one transaction; process restart persistence; offline → authenticated sync; Auth.js API authorization; cross-user isolation; logout/login isolation; sync retry/conflicts.
 
-- Touch targets should be comfortably tappable.
-- Support dynamic font scaling.
-- Maintain readable contrast.
-- Do not communicate transaction type by color alone.
-- Provide content descriptions for important icons/images.
-- Ensure bottom navigation remains usable with larger text.
-- Forms must provide clear validation.
+### UI
 
-Visual style: **minimal, modern, friendly, clean**. Avoid excessive cards, gradients, shadows, or decorative elements that reduce information density.
+Onboarding/auth, session restoration, Home, Activity CRUD, E-Wallet setup, pending confirmation, Goals, and NoTa.
+
+### Real-device
+
+Test Activity closed, process killed, reboot, notification access toggled, aggressive OEM battery restrictions, offline/recovery, and expired/recovered authentication sessions.
 
 ---
 
-## 30. Testing Strategy
+# 19. Definition of Done
 
-### Unit tests — mandatory
+### Authentication
 
-- DANA parser
-- GoPay parser
-- wallet identification
-- amount extraction
-- income/expense classification
-- deduplication
-- transaction fingerprint generation
-- balance calculation
-- budget calculation
-- goal progress
-- AI structured-response parsing
+- [ ] Auth.js/NextAuth is the official and only authentication authority.
+- [ ] Android uses the backend authentication flow.
+- [ ] Google authentication works.
+- [ ] Session restoration works.
+- [ ] Expiry/revocation is handled.
+- [ ] API authorization uses authenticated server identity.
+- [ ] Cross-user access is impossible.
+- [ ] Logout/account switching is safe.
 
-### Integration tests — mandatory
+### Wallet automation
 
-- Notification → adapter → transaction pipeline
-- duplicate notification → one transaction
-- app restart → data persists
-- offline transaction → later cloud sync
-- logout/login → correct user data isolation
+- [ ] DANA works for supported formats.
+- [ ] GoPay works for supported formats.
+- [ ] Detection works while Activity is closed.
+- [ ] Duplicate events create one transaction.
+- [ ] Invalid events cannot change financial state.
+- [ ] High-confidence events auto-record.
+- [ ] Ambiguous events can be reviewed.
+- [ ] Balance cannot be double-counted.
 
-### UI tests — mandatory for P0
+### Backend/database
 
-- onboarding/auth
-- Home
-- manual transaction
-- transaction detail/edit/delete
-- E-Wallet setup
-- pending transaction confirmation
-- Goals
-- NoTa basic interaction
+- [ ] All private APIs are authenticated and user-scoped.
+- [ ] Canonical user ownership is enforced server-side.
+- [ ] Room works offline.
+- [ ] Sync retries after recovery.
+- [ ] Sync is idempotent.
+- [ ] Conflicts follow deterministic rules.
 
-### Device tests
+### AI/security
 
-Test notification listener behavior on real Android devices because OEM background restrictions can differ significantly from emulator behavior.
-
-Test at least:
-
-- Android stock behavior
-- aggressive battery-management OEM behavior where available
-- notification access disabled/enabled
-- app process killed/restarted
-- reboot recovery
-
----
-
-## 31. Acceptance Criteria — Definition of Done
-
-ViNote 2 is considered production-ready for the MVP when all of the following are true:
-
-### Automatic wallet detection
-
-- [ ] User can enable/disable supported wallet apps with toggles.
-- [ ] ViNote detects relevant notifications while the Activity is closed.
-- [ ] DANA transactions are correctly detected for supported notification formats.
-- [ ] GoPay transactions are correctly detected for supported notification formats.
-- [ ] Duplicate notifications do not create duplicate transactions.
-- [ ] Invalid/irrelevant notifications are ignored.
-- [ ] Parser failures do not change balances.
-- [ ] High-confidence transactions can be auto-recorded.
-- [ ] Ambiguous transactions can be reviewed before affecting the ledger.
-
-### Financial ledger
-
-- [ ] Every transaction has a unique stable ID.
-- [ ] Amount calculations are exact and safe.
-- [ ] Wallet balances are consistent.
-- [ ] Transfers are not counted as spending.
-- [ ] Editing/deleting transactions updates aggregates.
-- [ ] App restart does not lose transactions.
-
-### Cloud
-
-- [ ] User data is isolated.
-- [ ] Local data works without network.
-- [ ] Sync retries after network recovery.
-- [ ] Duplicate sync events are safe.
-- [ ] Logout cannot expose another user's data.
-
-### AI
-
-- [ ] NoTa can answer questions from actual transaction data.
+- [ ] NoTa is grounded in actual ledger data.
 - [ ] AI cannot invent ledger state.
-- [ ] AI failures do not break finance features.
-- [ ] AI-created transaction data requires validation/confirmation when uncertain.
-
-### UX
-
-- [ ] No major screen relies on fake/mock financial data.
-- [ ] Loading, empty, error, offline, and permission states are implemented.
-- [ ] Back navigation works consistently.
-- [ ] Settings can recover disabled permissions.
-- [ ] No critical action silently fails.
-
-### Security
-
-- [ ] No production API keys are committed.
-- [ ] Sensitive notification contents are not written to production logs.
-- [ ] Cloud access is user-scoped.
-- [ ] Sensitive local/session information is protected.
+- [ ] AI failure does not break finance features.
+- [ ] No production secrets are committed or packaged in APK.
+- [ ] Sensitive notification data is not logged.
 
 ---
 
-## 32. Implementation Phases
+# 20. Implementation Phases
 
-### Phase 0 — Stabilize the foundation
+## Phase 0 — Foundation
 
-- Audit current repository and remove prototype-only paths.
+- Audit prototype-only paths.
 - Establish dependency injection/application scope.
-- Establish canonical data models and migrations.
-- Make startup/auth state persistent.
-- Add structured error/state handling.
-- Add baseline unit/integration tests.
+- Establish canonical models/migrations.
+- Establish persistent auth state.
+- Establish backend/API contract.
+- Add baseline tests.
 
-**Exit:** App launches reliably and architecture is ready for production features.
+**Exit:** Android and backend foundations are production-ready.
 
-### Phase 1 — Production ledger
+## Phase 1 — Auth.js/NextAuth + Backend
+
+- Create Next.js backend/service layer.
+- Configure Auth.js/NextAuth.
+- Implement Google OAuth.
+- Define Android authentication/session flow.
+- Implement authenticated API middleware/authorization.
+- Establish PostgreSQL/Supabase schema.
+- Map Auth.js identity to application User.
+
+**Exit:** User can securely authenticate and access only their own cloud data.
+
+## Phase 2 — Production Ledger
 
 - Harden Room schema.
-- Implement transaction use cases.
-- Implement deterministic balance calculations.
-- Complete Activity CRUD.
-- Complete Home using real repository data.
+- Complete transaction use cases.
+- Implement deterministic accounting.
+- Complete Home/Activity with real data.
 - Implement wallet/account model.
 
-**Exit:** Manual finance tracking is fully reliable offline.
+**Exit:** Manual finance tracking is reliable offline.
 
-### Phase 2 — Automatic E-Wallet Engine
+## Phase 3 — Automatic E-Wallet Engine
 
-- Refactor notification listener lifecycle.
+- Refactor NotificationListenerService lifecycle.
 - Remove fragile global processor state.
-- Implement injected processor/coordinator.
+- Implement injected coordinator.
 - Harden DANA/GoPay adapters.
-- Add stable event fingerprinting.
-- Add deduplication constraints.
-- Add confidence states.
-- Add pending transaction review.
-- Add wallet reconciliation.
+- Add event fingerprints and DB deduplication.
+- Add confidence/pending review.
+- Add reconciliation.
 
-**Exit:** Automatic detection can run unattended and cannot double-count transactions.
+**Exit:** Detection runs unattended without double-counting.
 
-### Phase 3 — Cloud & identity
+## Phase 4 — Cloud Sync
 
-- Complete authentication.
-- User-scoped Firestore data.
-- Offline queue.
-- Retry/backoff.
-- Conflict handling.
-- Logout/session cleanup.
+- Implement Room sync queue.
+- Implement authenticated push/pull APIs.
+- Add idempotency, retry/backoff, conflict handling.
+- Add logout/session cleanup.
 
-**Exit:** Reinstall/device change can recover cloud-backed user data.
+**Exit:** Local-first data synchronizes securely to the authenticated account.
 
-### Phase 4 — NoTa production AI
+## Phase 5 — NoTa Production AI
 
-- Define AI gateway interface.
-- Harden OpenRouter client.
-- Implement tool-based finance context.
-- Add structured transaction extraction.
+- Define AI gateway.
+- Harden OpenRouter integration.
+- Add controlled finance tools.
+- Add structured extraction.
 - Add conversation persistence.
-- Add AI fallback/offline behavior.
+- Add offline fallback.
 
-**Exit:** NoTa is useful, grounded, and never authoritative over ledger arithmetic.
+**Exit:** NoTa is useful and grounded without owning financial truth.
 
-### Phase 5 — Input expansion
+## Phase 6 — Input Expansion & Production Polish
 
-- Receipt OCR → transaction draft.
-- Voice → transaction draft.
-- Better merchant/category inference.
-- Goal/budget integrations.
-
-**Exit:** Manual entry becomes extremely low-friction.
-
-### Phase 6 — Production polish
-
+- Receipt OCR drafts.
+- Voice drafts.
+- Goals/budgets integration.
 - Permission UX.
 - Notifications.
-- Privacy controls.
-- Accessibility.
-- Performance.
-- Crash/error diagnostics.
-- Device/OEM testing.
-- Release signing and production build configuration.
+- Accessibility/performance.
+- Diagnostics.
+- OEM/device testing.
+- Release signing and production configuration.
 
-**Exit:** App can be used daily without developer intervention.
+**Exit:** ViNote can be used daily without developer intervention.
 
 ---
 
-## 33. Priority Matrix
+# 21. Priority Matrix
 
 | Feature | Priority | Release Gate |
 |---|---:|---:|
+| Auth.js / NextAuth authentication | P0 | Yes |
+| Authenticated backend API | P0 | Yes |
+| User-scoped PostgreSQL/Supabase | P0 | Yes |
 | Real transaction ledger | P0 | Yes |
 | Local persistence | P0 | Yes |
-| Automatic wallet notification detection | P0 | Yes |
+| Automatic wallet detection | P0 | Yes |
 | DANA adapter | P0 | Yes |
 | GoPay adapter | P0 | Yes |
 | Deduplication | P0 | Yes |
 | Correct balance accounting | P0 | Yes |
 | Pending transaction review | P0 | Yes |
-| Authentication | P0 | Yes |
 | Cloud sync | P0 | Yes |
 | Home dashboard | P0 | Yes |
 | Activity CRUD | P0 | Yes |
-| E-wallet settings | P0 | Yes |
-| NoTa grounded assistant | P1 | No |
+| E-Wallet settings | P0 | Yes |
+| Grounded NoTa | P1 | No |
 | Receipt scanning | P1 | No |
 | Voice input | P1 | No |
 | Goals | P1 | No |
 | Budgets | P1 | No |
-| Additional banks/wallets | P2 | No |
+| Additional adapters | P2 | No |
 | Advanced personalization | P2 | No |
 
 ---
 
-## 34. Developer Instructions
+# 22. Developer Instructions
 
-When implementing this PRD against the existing ViNote-2 repository:
-
-1. **Do not rebuild the app from scratch.** Reuse existing screens, models, adapters, repositories, and services where they are sound.
-2. **Do not create fake/mock functionality to satisfy a screen.** Every production screen must connect to the actual data layer.
-3. **Prioritize correctness over visual polish.** A beautiful incorrect balance is a critical bug.
-4. **Do not let AI own financial truth.** AI interprets; deterministic application logic calculates and persists.
-5. **Every background event must be idempotent.** Assume notifications can arrive repeatedly.
-6. **Every network feature must degrade gracefully offline.**
-7. **Every permission-dependent feature needs a recovery path.**
-8. **Use migrations instead of destructive database resets.**
-9. **Write tests alongside critical financial logic.**
-10. **Keep provider-specific wallet parsing isolated behind adapters.**
-11. **Do not store or expose secrets in source code.**
-12. **After each phase, build and test on a real Android device.**
+1. Do not rebuild ViNote from scratch.
+2. Reuse sound existing screens, models, adapters, repositories, and services.
+3. Never use fake/mock financial data in production screens.
+4. Prioritize accounting correctness over visual polish.
+5. AI interprets; deterministic application code owns financial truth.
+6. Every background event must be idempotent.
+7. Every network feature must degrade gracefully offline.
+8. Every permission-dependent feature needs recovery UX.
+9. Use migrations rather than destructive database resets.
+10. Write tests alongside financial and authentication logic.
+11. Keep provider-specific parsing behind adapters.
+12. Never expose server secrets or shared API keys in Android.
+13. Authorize all backend financial resources using Auth.js/NextAuth authenticated identity.
+14. Never trust a client-supplied user ID for authorization.
+15. Build and test every phase on a real Android device.
 
 ---
 
-## 35. Final Product Definition
+# 23. Final Product Definition
 
-The finished ViNote 2 should pass this simple user test:
+ViNote 2 is complete when a user can install the app, authenticate through the Auth.js/NextAuth-backed account system, enable DANA/GoPay detection, close the app, spend money normally, have ViNote detect and record the transaction exactly once, see the correct wallet/ledger state later, continue working offline, synchronize securely when online, and ask NoTa questions grounded in the real ledger.
 
-> A user installs ViNote, signs in, enables DANA/GoPay notification detection, sets their starting balance and budget, then closes the app. They spend money normally using their wallet. ViNote detects the transaction, records it once, updates the correct financial state, and makes the transaction visible in Activity without requiring manual entry. When the user opens ViNote later, Home immediately shows the correct state. They can ask NoTa why their spending changed, and NoTa answers from the real ledger. If the internet is unavailable, the core experience still works and sync resumes later.
+A second user must be completely isolated from the first user's financial data.
 
-That is the transition from **ViNote-2 prototype** to **usable ViNote product**.
+That is the transition from **ViNote-2 prototype** to a genuinely usable production product.
