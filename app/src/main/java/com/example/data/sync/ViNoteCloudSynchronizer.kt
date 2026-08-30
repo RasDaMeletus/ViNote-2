@@ -2,28 +2,24 @@ package com.example.data.sync
 
 import android.util.Log
 import com.example.data.auth.AuthRepository
+import com.example.data.local.BudgetDao
 import com.example.data.local.GoalDao
 import com.example.data.local.SyncQueueDao
 import com.example.data.local.TransactionDao
+import com.example.data.local.WalletAccountDao
 import com.example.data.local.entities.SyncOperation
 import com.example.data.local.entities.SyncQueueStatus
 import com.example.data.repository.FirestoreExpenseSyncRepository
+import com.example.data.repository.FirestoreWalletBudgetSyncRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class CloudSyncStatus {
-    IDLE,
-    SYNCING,
-    SYNCED,
-    OFFLINE,
-    ERROR
-}
+enum class CloudSyncStatus { IDLE, SYNCING, SYNCED, OFFLINE, ERROR }
 
 data class SyncSummary(
     val status: CloudSyncStatus = CloudSyncStatus.IDLE,
@@ -32,25 +28,25 @@ data class SyncSummary(
     val errorMessage: String? = null
 )
 
-/**
- * Production Local-First Cloud Synchronizer.
- * Processes the Room SyncQueue, pushes local changes to Firestore / Next.js backend,
- * and pulls remote updates to ensure multi-device consistency.
- * Fault-tolerant: offline or network failures never block on-device operations.
- */
+/** Production local-first synchronizer for transactions, wallets, budgets and goals. */
 class ViNoteCloudSynchronizer(
     private val transactionDao: TransactionDao,
     private val goalDao: GoalDao,
+    private val walletAccountDao: WalletAccountDao,
+    private val budgetDao: BudgetDao,
     private val syncQueueDao: SyncQueueDao,
     private val authRepository: AuthRepository,
     private val firestoreRepository: FirestoreExpenseSyncRepository = FirestoreExpenseSyncRepository(),
+    private val walletBudgetRepository: FirestoreWalletBudgetSyncRepository = FirestoreWalletBudgetSyncRepository(
+        walletDao = walletAccountDao,
+        budgetDao = budgetDao
+    ),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) {
     private val _syncState = MutableStateFlow(SyncSummary())
     val syncState: StateFlow<SyncSummary> = _syncState.asStateFlow()
 
     init {
-        // Observe pending queue size
         scope.launch {
             val userId = authRepository.getCanonicalUserId()
             syncQueueDao.getPendingCountFlow(userId).collect { count ->
@@ -71,7 +67,6 @@ class ViNoteCloudSynchronizer(
         Log.i("ViNoteSync", "Starting full cloud synchronization for user: ${currentSession.userId}")
 
         try {
-            // 1. Drain pending queue
             val pendingQueue = syncQueueDao.getPendingQueue(currentSession.userId)
             for (queueItem in pendingQueue) {
                 try {
@@ -82,18 +77,13 @@ class ViNoteCloudSynchronizer(
                                 val txId = queueItem.entityId.toLongOrNull()
                                 if (txId != null) {
                                     val tx = transactionDao.getTransactionById(txId)
-                                    if (tx != null) {
-                                        firestoreRepository.syncLocalToRemote(listOf(tx))
-                                    }
+                                    if (tx != null) firestoreRepository.syncLocalToRemote(listOf(tx))
                                 }
                             }
                         }
                         SyncOperation.DELETE -> {
                             if (queueItem.entityType == "TRANSACTION") {
-                                val txId = queueItem.entityId.toLongOrNull()
-                                if (txId != null) {
-                                    firestoreRepository.deleteRemoteExpense(txId)
-                                }
+                                queueItem.entityId.toLongOrNull()?.let { firestoreRepository.deleteRemoteExpense(it) }
                             }
                         }
                     }
@@ -104,17 +94,19 @@ class ViNoteCloudSynchronizer(
                 }
             }
 
-            // 2. Perform two-way pull/merge
-            val result = firestoreRepository.performFullSync(transactionDao)
+            val expenseResult = firestoreRepository.performFullSync(transactionDao)
+            val walletBudgetResult = walletBudgetRepository.sync()
+            val success = expenseResult.isSuccess && walletBudgetResult.isSuccess
+            val error = walletBudgetResult.exceptionOrNull()?.localizedMessage ?: expenseResult.errorMessage
 
             val summary = SyncSummary(
-                status = if (result.isSuccess) CloudSyncStatus.SYNCED else CloudSyncStatus.ERROR,
+                status = if (success) CloudSyncStatus.SYNCED else CloudSyncStatus.ERROR,
                 pendingItemsCount = syncQueueDao.getPendingQueue(currentSession.userId).size,
                 lastSyncTimestamp = System.currentTimeMillis(),
-                errorMessage = result.errorMessage
+                errorMessage = error
             )
             _syncState.value = summary
-            Log.i("ViNoteSync", "Sync completed: isSuccess=${result.isSuccess}, uploaded=${result.uploadedCount}, downloaded=${result.downloadedCount}")
+            Log.i("ViNoteSync", "Sync completed: success=$success")
             summary
         } catch (e: Exception) {
             Log.e("ViNoteSync", "Sync execution error", e)
